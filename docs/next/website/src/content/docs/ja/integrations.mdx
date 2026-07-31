@@ -21,6 +21,7 @@ herdr integration install devin
 herdr integration install droid
 herdr integration install kimi
 herdr integration install opencode
+herdr integration install opencode-quota
 herdr integration install kilo
 herdr integration install hermes
 herdr integration install mastracode
@@ -43,6 +44,7 @@ herdr integration uninstall devin
 herdr integration uninstall droid
 herdr integration uninstall kimi
 herdr integration uninstall opencode
+herdr integration uninstall opencode-quota
 herdr integration uninstall kilo
 herdr integration uninstall hermes
 herdr integration uninstall mastracode
@@ -220,6 +222,20 @@ herdr integration install opencode
 Herdr はプラグインを `~/.config/opencode/plugins/herdr-agent-state.js` に書き込みます。OpenCode の設定ディレクトリはあらかじめ存在している必要があります。アンインストールはそのプラグインファイルだけを削除します。
 
 このプラグインは、OpenCode が Herdr のペイン内で動いている間、ライフサイクル状態とセッション識別を報告します。OpenCode がセッション情報を含むイベントを発行した後、Herdr は報告されたセッション id を使って `opencode --session <id>` でペインを resume できます。プラグインがインストールされていないときは、スクリーンマニフェスト検出が引き続き利用できます。
+
+### オプションの OpenAI クォータカード
+
+OpenAI クォータインテグレーションはデフォルトで無効であり、設定画面から推奨インテグレーションをインストールしても含まれません。明示的に有効化します:
+
+```bash
+herdr integration install opencode-quota
+```
+
+このコマンドは別のプラグインを `~/.config/opencode/plugins/herdr-openai-quota.js` に書き込み、標準の OpenCode ライフサイクルプラグインをインストールまたは変更しません。新しいプラグインを読み込むには、インストール後に OpenCode を再起動してください。`herdr integration uninstall opencode-quota` はクォータプラグインだけを削除します。
+
+このプラグインは OpenCode の公開 auth loader を使い、OpenCode が管理している既存の OpenAI OAuth ログインにアクセスします。対象の OpenCode ペインがアクティブな間だけ `https://chatgpt.com/backend-api/wham/usage` をリクエストし、正規化した状態、プラン、ウィンドウ期間、残量率、リセット時刻を Herdr のローカルペインメタデータへ報告します。access token、account id、refresh token、生のレスポンスは Herdr に報告されません。API キーログインでは ChatGPT サブスクリプションのクォータを取得できません。OAuth access が期限切れの場合、カードは stale 状態を表示し、プラグイン自身で認証情報を更新せずに OpenCode によるログイン更新を待ちます。
+
+サイドバーカードは返された期間から各クォータウィンドウのラベルを動的に生成し、固定の 5 時間または週間ウィンドウを仮定しません。クォータウィンドウの下には主ウィンドウのリセットまでの残り時間を表示し、必要に応じて副ウィンドウへフォールバックします。ChatGPT usage endpoint は OpenAI の公開 API ではなく、Herdr とは独立して変更される可能性があります。
 
 ## Kilo Code CLI
 

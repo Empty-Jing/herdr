@@ -19,6 +19,7 @@ herdr integration install devin
 herdr integration install droid
 herdr integration install kimi
 herdr integration install opencode
+herdr integration install opencode-quota
 herdr integration install kilo
 herdr integration install hermes
 herdr integration install qodercli
@@ -41,6 +42,7 @@ herdr integration uninstall devin
 herdr integration uninstall droid
 herdr integration uninstall kimi
 herdr integration uninstall opencode
+herdr integration uninstall opencode-quota
 herdr integration uninstall kilo
 herdr integration uninstall hermes
 herdr integration uninstall qodercli
@@ -218,6 +220,20 @@ herdr integration install opencode
 Herdr writes the plugin to `~/.config/opencode/plugins/herdr-agent-state.js`. The OpenCode config directory must already exist. Uninstall removes only that plugin file.
 
 The plugin reports lifecycle state and session identity while OpenCode runs inside a Herdr pane. After OpenCode emits a session-bearing event, Herdr can use the reported session id to resume the pane with `opencode --session <id>`. Native screen manifest detection remains available when the plugin is not installed.
+
+### Optional OpenAI quota card
+
+The OpenAI quota integration is disabled by default and is not included when the settings screen installs recommended integrations. Enable it explicitly:
+
+```bash
+herdr integration install opencode-quota
+```
+
+This writes a separate plugin to `~/.config/opencode/plugins/herdr-openai-quota.js`; it does not install or modify the standard OpenCode lifecycle plugin. Restart OpenCode after installing so it loads the new plugin. Remove only the quota plugin with `herdr integration uninstall opencode-quota`.
+
+The plugin uses OpenCode's public auth loader to access the OpenAI OAuth login already managed by OpenCode. Only while that OpenCode pane is active, it requests `https://chatgpt.com/backend-api/wham/usage` and reports normalized status, plan, window duration, remaining percentage, and reset time to Herdr's local pane metadata. The access token, account id, refresh token, and raw response are never reported to Herdr. API-key logins do not expose ChatGPT subscription quota. If the OAuth access has expired, the card shows stale data status and waits for OpenCode to refresh its own login instead of refreshing credentials itself.
+
+The sidebar card labels each available quota window from its returned duration rather than assuming fixed five-hour or weekly windows. Below the quota windows, it shows the primary window's reset countdown and falls back to the secondary window when needed. The ChatGPT usage endpoint is not a public OpenAI API and may change independently of Herdr.
 
 ## Kilo Code CLI
 

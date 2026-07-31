@@ -21,6 +21,7 @@ herdr integration install devin
 herdr integration install droid
 herdr integration install kimi
 herdr integration install opencode
+herdr integration install opencode-quota
 herdr integration install kilo
 herdr integration install hermes
 herdr integration install mastracode
@@ -43,6 +44,7 @@ herdr integration uninstall devin
 herdr integration uninstall droid
 herdr integration uninstall kimi
 herdr integration uninstall opencode
+herdr integration uninstall opencode-quota
 herdr integration uninstall kilo
 herdr integration uninstall hermes
 herdr integration uninstall mastracode
@@ -220,6 +222,20 @@ herdr integration install opencode
 Herdr 把插件写入 `~/.config/opencode/plugins/herdr-agent-state.js`。OpenCode 配置目录必须已经存在。卸载只删除那个插件文件。
 
 该插件在 OpenCode 运行于 Herdr 窗格内时上报生命周期状态和会话身份。在 OpenCode 发出携带会话信息的事件后,Herdr 可以用上报的会话 id 通过 `opencode --session <id>` 恢复该窗格。插件未安装时,屏幕清单检测仍然可用。
+
+### 可选 OpenAI 额度卡片
+
+OpenAI 额度集成默认关闭,设置界面安装推荐集成时也不会包含它。必须显式启用:
+
+```bash
+herdr integration install opencode-quota
+```
+
+该命令会把独立插件写入 `~/.config/opencode/plugins/herdr-openai-quota.js`,不会安装或修改标准 OpenCode 生命周期插件。安装后需重启 OpenCode,以加载新插件。运行 `herdr integration uninstall opencode-quota` 只会删除额度插件。
+
+该插件通过 OpenCode 的公开 auth loader 使用由 OpenCode 管理的现有 OpenAI OAuth 登录。只有对应 OpenCode 窗格处于活动状态时,插件才会请求 `https://chatgpt.com/backend-api/wham/usage`,并向 Herdr 的本地窗格元数据上报归一化后的状态、套餐、窗口时长、剩余百分比和重置时间。access token、account id、refresh token 和原始响应都不会上报给 Herdr。API Key 登录不提供 ChatGPT 订阅额度。OAuth access 过期时,卡片会显示 stale 状态并等待 OpenCode 自行刷新登录,插件不会自行刷新凭据。
+
+侧栏卡片根据返回的窗口时长动态生成每个额度窗口的标签,不会假定固定的五小时或每周窗口。额度窗口下方会显示主窗口的重置倒计时,必要时回退到次级窗口。ChatGPT usage endpoint 不是 OpenAI 的公开 API,可能独立于 Herdr 发生变化。
 
 ## Kilo Code CLI
 

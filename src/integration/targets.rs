@@ -54,8 +54,9 @@ use super::{
     MASTRACODE_HOOK_INSTALL_NAME, MASTRACODE_HOOK_TIMEOUT_MS, MASTRACODE_REMOVED_HOOK_EVENTS,
     OMP_EXTENSION_ASSET, OMP_EXTENSION_INSTALL_NAME, OPENCODE_PLUGIN_ASSET,
     OPENCODE_PLUGIN_INSTALL_NAME, OPENCODE_TUI_PLUGIN_ASSET, OPENCODE_TUI_PLUGIN_INSTALL_NAME,
-    OPENCODE_TUI_PLUGIN_SPEC, PI_EXTENSION_ASSET, PI_EXTENSION_INSTALL_NAME, QODERCLI_HOOK_ASSET,
-    QODERCLI_HOOK_EVENTS, QODERCLI_HOOK_INSTALL_NAME, QODERCLI_REMOVED_LIFECYCLE_HOOK_EVENTS,
+    OPENCODE_TUI_PLUGIN_SPEC, OPENCODE_QUOTA_PLUGIN_ASSET, OPENCODE_QUOTA_PLUGIN_INSTALL_NAME,
+    PI_EXTENSION_ASSET, PI_EXTENSION_INSTALL_NAME, QODERCLI_HOOK_ASSET, QODERCLI_HOOK_EVENTS,
+    QODERCLI_HOOK_INSTALL_NAME, QODERCLI_REMOVED_LIFECYCLE_HOOK_EVENTS,
     QWEN_HOOK_ASSET, QWEN_HOOK_EVENTS, QWEN_HOOK_INSTALL_NAME,
 };
 
@@ -474,6 +475,24 @@ pub(crate) fn install_opencode() -> io::Result<OpenCodeInstallPaths> {
     })
 }
 
+pub(crate) fn install_opencode_quota() -> io::Result<OpenCodeInstallPaths> {
+    let dir = opencode_dir()?;
+    if !dir.is_dir() {
+        return Err(io::Error::other(format!(
+            "opencode config directory not found at {}. install opencode first",
+            dir.display()
+        )));
+    }
+
+    let plugins_dir = dir.join("plugins");
+    fs::create_dir_all(&plugins_dir)?;
+
+    let plugin_path = plugins_dir.join(OPENCODE_QUOTA_PLUGIN_INSTALL_NAME);
+    fs::write(&plugin_path, OPENCODE_QUOTA_PLUGIN_ASSET)?;
+
+    Ok(OpenCodeInstallPaths { plugin_path })
+}
+
 pub(crate) fn install_kilo() -> io::Result<KiloInstallPaths> {
     let dir = kilo_dir()?;
     if !dir.is_dir() {
@@ -846,6 +865,18 @@ pub(crate) fn uninstall_opencode() -> io::Result<OpenCodeUninstallResult> {
         removed_plugin,
         removed_tui_plugin,
         updated_tui_config,
+    })
+}
+
+pub(crate) fn uninstall_opencode_quota() -> io::Result<OpenCodeUninstallResult> {
+    let plugin_path = opencode_dir()?
+        .join("plugins")
+        .join(OPENCODE_QUOTA_PLUGIN_INSTALL_NAME);
+    let removed_plugin = remove_file_if_exists(&plugin_path)?;
+
+    Ok(OpenCodeUninstallResult {
+        plugin_path,
+        removed_plugin,
     })
 }
 

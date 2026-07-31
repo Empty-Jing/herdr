@@ -1,3 +1,4 @@
+mod quota;
 mod tokens;
 
 use ratatui::{
@@ -312,7 +313,7 @@ pub(crate) fn next_entry_is_indented_workspace(entries: &[WorkspaceListEntry], i
 
 pub(crate) fn normalized_workspace_scroll(app: &AppState, area: Rect, requested: usize) -> usize {
     let ws_area = workspace_list_rect(area, app.sidebar_section_split);
-    let body = workspace_list_body_rect(ws_area, false);
+    let body = workspace_list_entries_body_rect(app, ws_area, false);
     if body.height == 0 {
         return requested;
     }
@@ -453,7 +454,7 @@ pub(crate) fn workspace_list_body_rect(area: Rect, has_scrollbar: bool) -> Rect 
 }
 
 fn workspace_list_visible_count(app: &AppState, area: Rect, scroll: usize) -> usize {
-    let body = workspace_list_body_rect(area, false);
+    let body = workspace_list_entries_body_rect(app, area, false);
     if body.width == 0 || body.height == 0 {
         return 0;
     }
@@ -484,7 +485,7 @@ fn workspace_list_visible_count(app: &AppState, area: Rect, scroll: usize) -> us
 }
 
 fn workspace_list_bottom_start(app: &AppState, area: Rect) -> usize {
-    let body = workspace_list_body_rect(area, false);
+    let body = workspace_list_entries_body_rect(app, area, false);
     let entries = workspace_list_entries(app);
     let mut used_rows = 0u16;
     let mut start = entries.len();
@@ -522,7 +523,7 @@ pub(crate) fn workspace_list_scroll_metrics(
 
 pub(crate) fn workspace_list_scrollbar_rect(app: &AppState, area: Rect) -> Option<Rect> {
     let metrics = workspace_list_scroll_metrics(app, area);
-    let body = workspace_list_body_rect(area, true);
+    let body = workspace_list_entries_body_rect(app, area, true);
     (should_show_scrollbar(metrics) && body.width > 0 && body.height > 0).then_some(Rect::new(
         area.x + area.width.saturating_sub(1),
         body.y,
@@ -540,6 +541,35 @@ pub(crate) fn agent_panel_body_rect(area: Rect, has_scrollbar: bool) -> Rect {
     let body_height = (area.y + area.height).saturating_sub(body_y);
     let body_width = area.width.saturating_sub(u16::from(has_scrollbar));
     Rect::new(area.x, body_y, body_width, body_height)
+}
+
+pub(crate) fn workspace_list_entries_body_rect(
+    app: &AppState,
+    area: Rect,
+    has_scrollbar: bool,
+) -> Rect {
+    let body = workspace_list_body_rect(area, has_scrollbar);
+    let card_height = quota::height_in_body(app, workspace_list_body_rect(area, false));
+    Rect::new(
+        body.x,
+        body.y,
+        body.width,
+        body.height.saturating_sub(card_height),
+    )
+}
+
+fn workspace_quota_card_rect(app: &AppState, area: Rect, has_scrollbar: bool) -> Rect {
+    let body = workspace_list_body_rect(area, has_scrollbar);
+    let height = quota::height_in_body(app, workspace_list_body_rect(area, false));
+    if height == 0 {
+        return Rect::default();
+    }
+    Rect::new(
+        body.x.saturating_add(1),
+        body.y + body.height.saturating_sub(height),
+        body.width.saturating_sub(2),
+        height,
+    )
 }
 
 fn resolved_agent_rows(app: &AppState, entry: &AgentPanelEntry) -> Vec<Vec<ResolvedToken>> {
@@ -665,7 +695,7 @@ pub(crate) fn compute_workspace_list_areas(
     }
 
     let metrics = workspace_list_scroll_metrics(app, ws_area);
-    let body = workspace_list_body_rect(ws_area, should_show_scrollbar(metrics));
+    let body = workspace_list_entries_body_rect(app, ws_area, should_show_scrollbar(metrics));
     if body.width == 0 || body.height == 0 {
         return (Vec::new(), Vec::new());
     }
@@ -881,7 +911,9 @@ pub(crate) fn workspace_drop_slots(
     if area.height == 0 || cards.is_empty() {
         return Vec::new();
     }
-    let list_bottom = area.y + area.height.saturating_sub(1);
+    let has_scrollbar = should_show_scrollbar(workspace_list_scroll_metrics(app, area));
+    let body = workspace_list_entries_body_rect(app, area, has_scrollbar);
+    let list_bottom = body.y + body.height;
     let entries = workspace_list_entries(app);
     let entry_position = |ws_idx| {
         entries.iter().position(|entry| {
@@ -1219,7 +1251,9 @@ fn render_workspace_list(
         _ => None,
     };
 
-    let list_bottom = area.y + area.height.saturating_sub(1);
+    let has_scrollbar = should_show_scrollbar(workspace_list_scroll_metrics(app, area));
+    let body = workspace_list_entries_body_rect(app, area, has_scrollbar);
+    let list_bottom = body.y + body.height;
     if area.height > 0 {
         frame.render_widget(
             Paragraph::new(Line::from(vec![Span::styled(
@@ -1392,6 +1426,11 @@ fn render_workspace_list(
 
     if let Some(track) = scrollbar_rect {
         render_scrollbar(frame, metrics, track, p.surface_dim, p.overlay0, "▕");
+    }
+
+    let quota_rect = workspace_quota_card_rect(app, area, has_scrollbar);
+    if quota_rect != Rect::default() {
+        quota::render(app, frame, quota_rect);
     }
 
     if app.mouse_capture && list_bottom > area.y {
@@ -1608,6 +1647,110 @@ mod tests {
                     row_text(buffer, row, width)
                 )
             })
+    }
+
+    fn app_with_openai_quota() -> AppState {
+        let mut app = AppState::test_new();
+        let workspace = Workspace::test_new("one");
+        let pane_id = workspace.tabs[0].root_pane;
+        app.workspaces = vec![workspace];
+        app.ensure_test_terminals();
+        app.active = Some(0);
+        let terminal_id = app.workspaces[0].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        let terminal = app.terminals.get_mut(&terminal_id).unwrap();
+        terminal.detected_agent = Some(Agent::OpenCode);
+        let reset_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 3 * 24 * 60 * 60;
+        terminal.metadata_tokens.patch(
+            std::collections::HashMap::from([
+                ("quota_status".into(), Some("ok".into())),
+                ("quota_provider".into(), Some("openai".into())),
+                ("quota_plan".into(), Some("plus".into())),
+                ("quota_primary_remaining".into(), Some("75".into())),
+                ("quota_primary_minutes".into(), Some("90".into())),
+                ("quota_primary_reset".into(), Some(reset_at.to_string())),
+                ("quota_secondary_remaining".into(), Some("40".into())),
+                ("quota_secondary_minutes".into(), Some("10080".into())),
+            ]),
+            None,
+            std::time::Instant::now(),
+        );
+        app
+    }
+
+    #[test]
+    fn active_opencode_quota_renders_at_bottom_of_spaces() {
+        let app = app_with_openai_quota();
+        let area = Rect::new(0, 0, 32, 20);
+        let (workspace_area, agent_area) =
+            expanded_sidebar_sections(area, app.sidebar_section_split);
+        let list_body = workspace_list_entries_body_rect(&app, workspace_area, false);
+        let quota_rect = workspace_quota_card_rect(&app, workspace_area, false);
+        let agent_body = agent_panel_body_rect(agent_area, false);
+        let mut terminal = Terminal::new(TestBackend::new(32, 20)).unwrap();
+
+        terminal
+            .draw(|frame| render_sidebar(&app, &TerminalRuntimeRegistry::new(), frame, area))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+
+        assert_eq!(quota_rect.y, list_body.y + list_body.height);
+        assert_eq!(
+            quota_rect.y + quota_rect.height,
+            workspace_area.y + workspace_area.height - 1
+        );
+        let title = row_text(buffer, quota_rect.y, area.width);
+        assert!(title.contains("OpenAI"));
+        assert!(!title.contains("OPENAI"));
+        assert!(!title.contains("QUOTA"));
+        assert!(!title.contains("PLUS"));
+        assert!(row_text(buffer, quota_rect.y + 1, area.width).contains("90m"));
+        assert!(row_text(buffer, quota_rect.y + 1, area.width).contains("75%"));
+        assert!(row_text(buffer, quota_rect.y + 2, area.width).contains("week"));
+        assert!(row_text(buffer, quota_rect.y + 2, area.width).contains("40%"));
+        assert!(row_text(buffer, quota_rect.y + 3, area.width).contains("resets in"));
+        assert!(row_text(buffer, agent_body.y, area.width).contains("one"));
+    }
+
+    #[test]
+    fn quota_card_stays_hidden_when_opencode_pane_is_not_active() {
+        let mut app = app_with_openai_quota();
+        app.workspaces.push(Workspace::test_new("two"));
+        app.ensure_test_terminals();
+        app.active = Some(1);
+        let area = Rect::new(0, 0, 32, 20);
+        let (workspace_area, _) = expanded_sidebar_sections(area, app.sidebar_section_split);
+
+        assert_eq!(
+            workspace_list_entries_body_rect(&app, workspace_area, false),
+            workspace_list_body_rect(workspace_area, false)
+        );
+    }
+
+    #[test]
+    fn active_opencode_without_tokens_reuses_quota_from_another_pane() {
+        let mut app = app_with_openai_quota();
+        let workspace = Workspace::test_new("two");
+        let pane_id = workspace.tabs[0].root_pane;
+        app.workspaces.push(workspace);
+        app.ensure_test_terminals();
+        app.active = Some(1);
+        let terminal_id = app.workspaces[1].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(Agent::OpenCode);
+        let area = Rect::new(0, 0, 32, 20);
+        let (workspace_area, _) = expanded_sidebar_sections(area, app.sidebar_section_split);
+
+        assert_ne!(
+            workspace_quota_card_rect(&app, workspace_area, false),
+            Rect::default()
+        );
     }
 
     #[test]

@@ -17,6 +17,7 @@ pub(crate) fn integration_target_label(
         crate::api::schema::IntegrationTarget::Droid => "droid",
         crate::api::schema::IntegrationTarget::Kimi => "kimi",
         crate::api::schema::IntegrationTarget::Opencode => "opencode",
+        crate::api::schema::IntegrationTarget::OpencodeQuota => "opencode-quota",
         crate::api::schema::IntegrationTarget::Kilo => "kilo",
         crate::api::schema::IntegrationTarget::Hermes => "hermes",
         crate::api::schema::IntegrationTarget::Qodercli => "qodercli",
@@ -47,6 +48,7 @@ pub(crate) fn integration_target_command_names(
         crate::api::schema::IntegrationTarget::Droid => &["droid"],
         crate::api::schema::IntegrationTarget::Kimi => &["kimi"],
         crate::api::schema::IntegrationTarget::Opencode => &["opencode"],
+        crate::api::schema::IntegrationTarget::OpencodeQuota => &["opencode"],
         crate::api::schema::IntegrationTarget::Kilo => &["kilo", "kilo-code"],
         crate::api::schema::IntegrationTarget::Hermes => &["hermes"],
         crate::api::schema::IntegrationTarget::Qodercli => qodercli_command_names(),
@@ -73,6 +75,7 @@ pub(crate) fn integration_target_supported(target: crate::api::schema::Integrati
                 | crate::api::schema::IntegrationTarget::Codex
                 | crate::api::schema::IntegrationTarget::Copilot
                 | crate::api::schema::IntegrationTarget::Opencode
+                | crate::api::schema::IntegrationTarget::OpencodeQuota
                 | crate::api::schema::IntegrationTarget::Kilo
                 | crate::api::schema::IntegrationTarget::Droid
                 | crate::api::schema::IntegrationTarget::Kimi
@@ -238,6 +241,9 @@ pub(crate) fn integration_recommendations() -> Vec<super::IntegrationRecommendat
     integration_specs()
         .into_iter()
         .filter_map(|(target, path, expected_version)| {
+            if target == crate::api::schema::IntegrationTarget::OpencodeQuota {
+                return None;
+            }
             if !integration_target_supported(target) {
                 return None;
             }
@@ -316,6 +322,14 @@ fn integration_specs() -> [(
                     .join(super::OPENCODE_PLUGIN_INSTALL_NAME)
             }),
             super::OPENCODE_INTEGRATION_VERSION,
+        ),
+        (
+            crate::api::schema::IntegrationTarget::OpencodeQuota,
+            opencode_dir().map(|dir| {
+                dir.join("plugins")
+                    .join(super::OPENCODE_QUOTA_PLUGIN_INSTALL_NAME)
+            }),
+            super::OPENCODE_QUOTA_INTEGRATION_VERSION,
         ),
         (
             crate::api::schema::IntegrationTarget::Kilo,

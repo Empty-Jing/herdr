@@ -4,11 +4,12 @@ use super::registry::{integration_target_label, integration_target_supported};
 use super::targets::{
     install_antigravity_cli, install_claude, install_codex, install_copilot, install_cursor,
     install_devin, install_droid, install_grok, install_hermes, install_kilo, install_kimi,
-    install_mastracode, install_omp, install_opencode, install_pi, install_qodercli, install_qwen,
-    uninstall_antigravity_cli, uninstall_claude, uninstall_codex, uninstall_copilot,
-    uninstall_cursor, uninstall_devin, uninstall_droid, uninstall_grok, uninstall_hermes,
-    uninstall_kilo, uninstall_kimi, uninstall_mastracode, uninstall_omp, uninstall_opencode,
-    uninstall_pi, uninstall_qodercli, uninstall_qwen,
+    install_mastracode, install_omp, install_opencode, install_opencode_quota, install_pi,
+    install_qodercli, install_qwen, uninstall_antigravity_cli, uninstall_claude, uninstall_codex,
+    uninstall_copilot, uninstall_cursor, uninstall_devin, uninstall_droid, uninstall_grok,
+    uninstall_hermes, uninstall_kilo, uninstall_kimi, uninstall_mastracode, uninstall_omp,
+    uninstall_opencode, uninstall_opencode_quota, uninstall_pi, uninstall_qodercli,
+    uninstall_qwen,
 };
 use super::version::{agent_version_requirement, enforce_agent_version};
 use super::{KIMI_MIN_VERSION, PI_EXTENSION_INSTALL_NAME};
@@ -158,6 +159,13 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
                     installed.tui_config_path.display()
                 ),
             ]
+        }
+        crate::api::schema::IntegrationTarget::OpencodeQuota => {
+            let installed = install_opencode_quota()?;
+            vec![format!(
+                "installed opencode quota integration plugin to {}",
+                installed.plugin_path.display()
+            )]
         }
         crate::api::schema::IntegrationTarget::Kilo => {
             let installed = install_kilo()?;
@@ -503,6 +511,20 @@ pub(crate) fn uninstall_target(
                 ));
             }
             messages
+        }
+        crate::api::schema::IntegrationTarget::OpencodeQuota => {
+            let result = uninstall_opencode_quota()?;
+            if result.removed_plugin {
+                vec![format!(
+                    "removed opencode quota integration plugin at {}",
+                    result.plugin_path.display()
+                )]
+            } else {
+                vec![format!(
+                    "no opencode quota integration plugin found at {}",
+                    result.plugin_path.display()
+                )]
+            }
         }
         crate::api::schema::IntegrationTarget::Kilo => {
             let result = uninstall_kilo()?;

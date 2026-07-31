@@ -367,6 +367,15 @@ impl AppState {
         if area == Rect::default() || row < area.y || row >= footer.y {
             return None;
         }
+        let metrics = crate::ui::workspace_list_scroll_metrics(self, area);
+        let body = crate::ui::workspace_list_entries_body_rect(
+            self,
+            area,
+            crate::ui::should_show_scrollbar(metrics),
+        );
+        if row >= body.y + body.height {
+            return None;
+        }
 
         let cards = if self.view.workspace_card_areas.is_empty() {
             crate::ui::compute_workspace_card_areas(self, self.view.sidebar_rect)
@@ -743,6 +752,43 @@ mod tests {
             snapshot.workspaces[0].tabs[first_tab].focused,
             Some(second_pane.raw())
         );
+    }
+
+    #[test]
+    fn quota_card_rows_are_not_workspace_targets() {
+        let mut app = app_for_mouse_test();
+        let workspace = Workspace::test_new("test");
+        let pane_id = workspace.tabs[0].root_pane;
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        let terminal = app.state.terminals.get_mut(&terminal_id).unwrap();
+        terminal.detected_agent = Some(Agent::OpenCode);
+        terminal.metadata_tokens.patch(
+            std::collections::HashMap::from([
+                ("quota_status".into(), Some("ok".into())),
+                ("quota_provider".into(), Some("openai".into())),
+                ("quota_primary_remaining".into(), Some("75".into())),
+                ("quota_primary_minutes".into(), Some("90".into())),
+            ]),
+            None,
+            std::time::Instant::now(),
+        );
+        app.state.view.workspace_card_areas =
+            crate::ui::compute_workspace_card_areas(&app.state, app.state.view.sidebar_rect);
+        let workspace_area = app.state.workspace_list_rect();
+        let quota_top = workspace_area.y + workspace_area.height.saturating_sub(4);
+
+        assert!(app
+            .state
+            .view
+            .workspace_card_areas
+            .iter()
+            .all(|card| card.rect.y + card.rect.height <= quota_top));
+        assert_eq!(app.state.workspace_drop_target_at_row(quota_top), None);
     }
 
     #[test]

@@ -192,6 +192,9 @@ fn windows_supports_portable_integrations() {
     assert!(integration_target_supported(IntegrationTarget::Codex));
     assert!(integration_target_supported(IntegrationTarget::Copilot));
     assert!(integration_target_supported(IntegrationTarget::Opencode));
+    assert!(integration_target_supported(
+        IntegrationTarget::OpencodeQuota
+    ));
     assert!(integration_target_supported(IntegrationTarget::Kilo));
     assert!(integration_target_supported(IntegrationTarget::Droid));
     assert!(integration_target_supported(IntegrationTarget::Kimi));
@@ -224,6 +227,9 @@ fn windows_availability_includes_native_integrations() {
     assert!(integration_target_available(IntegrationTarget::Pi));
     assert!(integration_target_available(IntegrationTarget::Omp));
     assert!(integration_target_available(IntegrationTarget::Opencode));
+    assert!(integration_target_available(
+        IntegrationTarget::OpencodeQuota
+    ));
     assert!(integration_target_available(IntegrationTarget::Kilo));
     assert!(integration_target_available(IntegrationTarget::Hermes));
     assert!(integration_target_available(IntegrationTarget::Cursor));
@@ -434,6 +440,30 @@ fn integration_recommendations_mark_standalone_codex_available() {
         std::env::set_var("PATH", path);
     } else {
         std::env::remove_var("PATH");
+    }
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn opencode_quota_is_only_available_for_explicit_install() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let home = base.join("home");
+    fs::create_dir_all(home.join(".config/opencode")).unwrap();
+    let original_home = std::env::var_os("HOME");
+    std::env::set_var("HOME", &home);
+
+    assert!(installed_integration_statuses()
+        .iter()
+        .any(|status| { status.target == crate::api::schema::IntegrationTarget::OpencodeQuota }));
+    assert!(integration_recommendations().iter().all(|recommendation| {
+        recommendation.target != crate::api::schema::IntegrationTarget::OpencodeQuota
+    }));
+
+    if let Some(home) = original_home {
+        std::env::set_var("HOME", home);
+    } else {
+        std::env::remove_var("HOME");
     }
     let _ = fs::remove_dir_all(base);
 }
@@ -2361,6 +2391,60 @@ fn install_opencode_errors_when_config_dir_missing() {
 }
 
 #[test]
+fn install_opencode_quota_writes_separate_plugin() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let home = base.join("home");
+    let opencode_dir = home.join(".config/opencode");
+    fs::create_dir_all(&opencode_dir).unwrap();
+    std::env::set_var("HOME", &home);
+
+    let installed = install_opencode_quota().unwrap();
+    let plugin_content = fs::read_to_string(&installed.plugin_path).unwrap();
+
+    assert_eq!(
+        installed.plugin_path,
+        opencode_dir
+            .join("plugins")
+            .join(OPENCODE_QUOTA_PLUGIN_INSTALL_NAME)
+    );
+    assert_eq!(plugin_content, OPENCODE_QUOTA_PLUGIN_ASSET);
+    assert!(!opencode_dir
+        .join("plugins")
+        .join(OPENCODE_PLUGIN_INSTALL_NAME)
+        .exists());
+
+    std::env::remove_var("HOME");
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn uninstall_opencode_quota_leaves_standard_plugin() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let home = base.join("home");
+    let plugins_dir = home.join(".config/opencode/plugins");
+    fs::create_dir_all(&plugins_dir).unwrap();
+    let standard_path = plugins_dir.join(OPENCODE_PLUGIN_INSTALL_NAME);
+    fs::write(&standard_path, OPENCODE_PLUGIN_ASSET).unwrap();
+    fs::write(
+        plugins_dir.join(OPENCODE_QUOTA_PLUGIN_INSTALL_NAME),
+        OPENCODE_QUOTA_PLUGIN_ASSET,
+    )
+    .unwrap();
+    std::env::set_var("HOME", &home);
+
+    let result = uninstall_opencode_quota().unwrap();
+
+    assert!(result.removed_plugin);
+    assert!(!result.plugin_path.exists());
+    assert!(standard_path.exists());
+
+    std::env::remove_var("HOME");
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
 fn install_kilo_writes_plugin_to_plugin_dir() {
     let _lock = integration_env_lock();
     let base = unique_base();
@@ -2713,6 +2797,11 @@ fn bundled_integration_asset_versions_match_expected_versions() {
             "opencode",
             OPENCODE_PLUGIN_ASSET,
             OPENCODE_INTEGRATION_VERSION,
+        ),
+        (
+            "opencode-quota",
+            OPENCODE_QUOTA_PLUGIN_ASSET,
+            OPENCODE_QUOTA_INTEGRATION_VERSION,
         ),
         ("kilo", KILO_PLUGIN_ASSET, KILO_INTEGRATION_VERSION),
         (
