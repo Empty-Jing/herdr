@@ -11,6 +11,7 @@ Open settings inside Herdr and use the integrations tab to install recommended i
 
 ```bash
 herdr integration install pi
+herdr integration install pi-quota
 herdr integration install omp
 herdr integration install claude
 herdr integration install codex
@@ -34,6 +35,7 @@ herdr integration install grok
 
 ```bash
 herdr integration uninstall pi
+herdr integration uninstall pi-quota
 herdr integration uninstall omp
 herdr integration uninstall claude
 herdr integration uninstall codex
@@ -110,6 +112,20 @@ Herdr writes the bundled extension to:
 ```
 
 If `PI_CODING_AGENT_DIR` is set, Herdr writes to `$PI_CODING_AGENT_DIR/extensions/herdr-agent-state.ts` instead. Herdr creates the extensions directory when the Pi agent directory already exists. Uninstall removes only that extension file.
+
+### Optional OpenAI quota card
+
+Install the separate, opt-in Pi quota extension:
+
+```bash
+herdr integration install pi-quota
+```
+
+Herdr writes it to `~/.pi/agent/extensions/herdr-openai-quota.ts`, or the resolved `PI_CODING_AGENT_DIR` extension directory. Run `/reload` in an existing Pi session, or restart Pi, after installation. `herdr integration uninstall pi-quota` removes only the quota extension.
+
+While its Pi pane is active, the extension resolves the existing `openai-codex` OAuth login through Pi's extension API, requests `https://chatgpt.com/backend-api/wham/usage`, and reports only normalized quota metadata to Herdr. It never reports the access token, account id, or raw response. The Pi and OpenCode quota integrations reuse fresh metadata from each other, so switching between the two agents does not make duplicate remote requests.
+
+The quota card is shared by active Pi and OpenCode panes. API-key logins do not expose ChatGPT subscription quota, and the ChatGPT usage endpoint is not a public OpenAI API and may change independently of Herdr.
 
 ## OMP
 

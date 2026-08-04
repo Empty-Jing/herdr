@@ -13,6 +13,7 @@ Herdr 内で設定を開き、インテグレーションタブから `PATH` 上
 
 ```bash
 herdr integration install pi
+herdr integration install pi-quota
 herdr integration install omp
 herdr integration install claude
 herdr integration install codex
@@ -36,6 +37,7 @@ herdr integration install grok
 
 ```bash
 herdr integration uninstall pi
+herdr integration uninstall pi-quota
 herdr integration uninstall omp
 herdr integration uninstall claude
 herdr integration uninstall codex
@@ -112,6 +114,20 @@ Herdr はバンドルされた拡張を次の場所に書き込みます:
 ```
 
 `PI_CODING_AGENT_DIR` が設定されている場合は、代わりに `$PI_CODING_AGENT_DIR/extensions/herdr-agent-state.ts` に書き込みます。Pi の agent ディレクトリが存在する場合、Herdr は extensions ディレクトリを作成します。アンインストールはその拡張ファイルだけを削除します。
+
+### オプションの OpenAI クォータカード
+
+独立したオプトインの Pi クォータ拡張をインストールします:
+
+```bash
+herdr integration install pi-quota
+```
+
+Herdr は `~/.pi/agent/extensions/herdr-openai-quota.ts`、または `PI_CODING_AGENT_DIR` から解決された拡張ディレクトリに書き込みます。インストール後、既存の Pi セッションで `/reload` を実行するか、Pi を再起動してください。`herdr integration uninstall pi-quota` はクォータ拡張だけを削除します。
+
+対象の Pi ペインがアクティブな間だけ、この拡張は Pi の拡張 API を通じて既存の `openai-codex` OAuth ログインを解決し、`https://chatgpt.com/backend-api/wham/usage` をリクエストして、正規化されたクォータメタデータだけを Herdr に報告します。access token、account id、生のレスポンスは報告しません。Pi と OpenCode のクォータインテグレーションは互いの新しいメタデータを再利用するため、2 つのエージェントを切り替えても重複したリモートリクエストは発生しません。
+
+アクティブな Pi と OpenCode のペインは同じクォータカードを共有します。API キーログインでは ChatGPT サブスクリプションのクォータを取得できず、ChatGPT usage endpoint は OpenAI の公開 API ではないため、Herdr とは独立して変更される可能性があります。
 
 ## OMP
 

@@ -2106,6 +2106,7 @@
         "IntegrationTarget": {
           "enum": [
             "pi",
+            "pi_quota",
             "omp",
             "claude",
             "codex",
@@ -7163,6 +7164,7 @@
         "IntegrationTarget": {
           "enum": [
             "pi",
+            "pi_quota",
             "omp",
             "claude",
             "codex",

@@ -187,6 +187,7 @@ fn windows_supports_portable_integrations() {
     assert!(integration_target_supported(IntegrationTarget::Grok));
 
     assert!(integration_target_supported(IntegrationTarget::Pi));
+    assert!(integration_target_supported(IntegrationTarget::PiQuota));
     assert!(integration_target_supported(IntegrationTarget::Omp));
     assert!(integration_target_supported(IntegrationTarget::Claude));
     assert!(integration_target_supported(IntegrationTarget::Codex));
@@ -225,6 +226,7 @@ fn windows_availability_includes_native_integrations() {
     fs::write(bin.join("grok.cmd"), "@echo off\r\n").unwrap();
 
     assert!(integration_target_available(IntegrationTarget::Pi));
+    assert!(integration_target_available(IntegrationTarget::PiQuota));
     assert!(integration_target_available(IntegrationTarget::Omp));
     assert!(integration_target_available(IntegrationTarget::Opencode));
     assert!(integration_target_available(
@@ -445,7 +447,7 @@ fn integration_recommendations_mark_standalone_codex_available() {
 }
 
 #[test]
-fn opencode_quota_is_only_available_for_explicit_install() {
+fn quota_integrations_are_only_available_for_explicit_install() {
     let _lock = integration_env_lock();
     let base = unique_base();
     let home = base.join("home");
@@ -453,11 +455,19 @@ fn opencode_quota_is_only_available_for_explicit_install() {
     let original_home = std::env::var_os("HOME");
     std::env::set_var("HOME", &home);
 
-    assert!(installed_integration_statuses()
+    let statuses = installed_integration_statuses();
+    assert!(statuses
         .iter()
-        .any(|status| { status.target == crate::api::schema::IntegrationTarget::OpencodeQuota }));
+        .any(|status| status.target == crate::api::schema::IntegrationTarget::PiQuota));
+    assert!(statuses
+        .iter()
+        .any(|status| status.target == crate::api::schema::IntegrationTarget::OpencodeQuota));
     assert!(integration_recommendations().iter().all(|recommendation| {
-        recommendation.target != crate::api::schema::IntegrationTarget::OpencodeQuota
+        !matches!(
+            recommendation.target,
+            crate::api::schema::IntegrationTarget::PiQuota
+                | crate::api::schema::IntegrationTarget::OpencodeQuota
+        )
     }));
 
     if let Some(home) = original_home {
@@ -506,6 +516,53 @@ fn install_pi_writes_embedded_asset_to_pi_extensions_dir() {
 
     assert_eq!(path, ext_dir.join(PI_EXTENSION_INSTALL_NAME));
     assert_eq!(content, PI_EXTENSION_ASSET);
+
+    std::env::remove_var("HOME");
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn install_pi_quota_writes_a_separate_extension() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let home = base.join("home");
+    let ext_dir = home.join(".pi/agent/extensions");
+    fs::create_dir_all(&ext_dir).unwrap();
+    let standard_path = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
+    fs::write(&standard_path, PI_EXTENSION_ASSET).unwrap();
+    std::env::set_var("HOME", &home);
+
+    let path = install_pi_quota().unwrap();
+
+    assert_eq!(path, ext_dir.join(PI_QUOTA_EXTENSION_INSTALL_NAME));
+    assert_eq!(fs::read_to_string(&path).unwrap(), PI_QUOTA_EXTENSION_ASSET);
+    assert!(standard_path.exists());
+
+    std::env::remove_var("HOME");
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn uninstall_pi_quota_leaves_standard_extension() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let home = base.join("home");
+    let ext_dir = home.join(".pi/agent/extensions");
+    fs::create_dir_all(&ext_dir).unwrap();
+    let standard_path = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
+    fs::write(&standard_path, PI_EXTENSION_ASSET).unwrap();
+    fs::write(
+        ext_dir.join(PI_QUOTA_EXTENSION_INSTALL_NAME),
+        PI_QUOTA_EXTENSION_ASSET,
+    )
+    .unwrap();
+    std::env::set_var("HOME", &home);
+
+    let result = uninstall_pi_quota().unwrap();
+
+    assert!(result.removed_extension);
+    assert!(!result.extension_path.exists());
+    assert!(standard_path.exists());
 
     std::env::remove_var("HOME");
     let _ = fs::remove_dir_all(base);
@@ -2786,6 +2843,11 @@ fn install_hermes_errors_when_config_dir_missing() {
 fn bundled_integration_asset_versions_match_expected_versions() {
     for (name, asset, expected_version) in [
         ("pi", PI_EXTENSION_ASSET, PI_INTEGRATION_VERSION),
+        (
+            "pi-quota",
+            PI_QUOTA_EXTENSION_ASSET,
+            PI_QUOTA_INTEGRATION_VERSION,
+        ),
         ("omp", OMP_EXTENSION_ASSET, OMP_INTEGRATION_VERSION),
         ("claude", CLAUDE_HOOK_ASSET, CLAUDE_INTEGRATION_VERSION),
         ("codex", CODEX_HOOK_ASSET, CODEX_INTEGRATION_VERSION),

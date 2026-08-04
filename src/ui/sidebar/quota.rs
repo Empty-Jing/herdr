@@ -28,16 +28,23 @@ struct Card {
     reset_at: Option<u64>,
 }
 
+fn is_openai_quota_agent(agent: Option<crate::detect::Agent>) -> bool {
+    matches!(
+        agent,
+        Some(crate::detect::Agent::OpenCode | crate::detect::Agent::Pi)
+    )
+}
+
 fn active_card(app: &AppState) -> Option<Card> {
     let entries = all_agent_panel_entries(app);
     let active = entries.iter().find(|entry| {
-        entry.agent == Some(crate::detect::Agent::OpenCode)
+        is_openai_quota_agent(entry.agent)
             && app.is_active_pane(entry.ws_idx, entry.tab_idx, entry.pane_id)
     })?;
     card_from_tokens(&active.tokens).or_else(|| {
         entries
             .iter()
-            .filter(|entry| entry.agent == Some(crate::detect::Agent::OpenCode))
+            .filter(|entry| is_openai_quota_agent(entry.agent))
             .find_map(|entry| card_from_tokens(&entry.tokens))
     })
 }

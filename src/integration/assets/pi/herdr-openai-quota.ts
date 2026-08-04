@@ -1,15 +1,18 @@
 // installed by herdr
 // managed by herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
-// HERDR_INTEGRATION_ID=opencode-quota
+// HERDR_INTEGRATION_ID=pi-quota
 // HERDR_INTEGRATION_VERSION=1
+// @ts-nocheck
 
 import net from "node:net";
 
-const SOURCE = "herdr:opencode-quota";
-const AGENT = "opencode";
+const SOURCE = "herdr:pi-quota";
+const AGENT = "pi";
 const QUOTA_AGENTS = new Set(["opencode", "pi"]);
+const PROVIDER = "openai-codex";
 const USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
+const JWT_CLAIM_PATH = "https://api.openai.com/auth";
 const TTL_MS = 11 * 60_000;
 const NORMAL_REFRESH_MS = 5 * 60_000;
 const RESET_REFRESH_MS = 60_000;
@@ -41,10 +44,6 @@ function nextSeq() {
   return reportSeq;
 }
 
-function socketEndpoint(path) {
-  return process.platform === "win32" ? `\\\\.\\pipe\\${path}` : path;
-}
-
 function timer(callback, delay) {
   const handle = setTimeout(callback, delay);
   handle.unref?.();
@@ -71,10 +70,12 @@ function tokenNumber(value) {
   return Number.isInteger(number) ? String(number) : String(Number(number.toFixed(2)));
 }
 
+function stringToken(value) {
+  return typeof value === "string" && value ? value : null;
+}
+
 function windowTokens(window) {
-  if (!isRecord(window)) {
-    return { remaining: null, minutes: null, reset: null };
-  }
+  if (!isRecord(window)) return { remaining: null, minutes: null, reset: null };
   const used = finiteNumber(pick(window, "used_percent", "usedPercent"));
   const explicitMinutes = finiteNumber(pick(window, "window_minutes", "windowMinutes"));
   const seconds = finiteNumber(pick(window, "limit_window_seconds", "limitWindowSeconds"));
@@ -126,14 +127,9 @@ function usageTokens(payload) {
   };
 }
 
-function stringToken(value) {
-  return typeof value === "string" && value ? value : null;
-}
-
 function sharedQuotaTokens(response) {
   const panes = response?.result?.panes;
   if (!Array.isArray(panes)) return;
-
   let newest;
   for (const pane of panes) {
     if (!QUOTA_AGENTS.has(pane?.agent) || !isRecord(pane.tokens)) continue;
@@ -142,9 +138,7 @@ function sharedQuotaTokens(response) {
       tokens.quota_provider !== "openai" ||
       tokens.quota_status !== "ok" ||
       typeof tokens.quota_updated !== "string"
-    ) {
-      continue;
-    }
+    ) continue;
     const updatedAt = Date.parse(tokens.quota_updated);
     const age = Date.now() - updatedAt;
     if (!Number.isFinite(updatedAt) || age < 0 || age >= NORMAL_REFRESH_MS) continue;
@@ -152,12 +146,10 @@ function sharedQuotaTokens(response) {
     newest = {
       age,
       updatedAt,
-      tokens: Object.fromEntries(
-        TOKEN_KEYS.map((key) => [
-          key,
-          typeof tokens[key] === "string" ? tokens[key] : null,
-        ]),
-      ),
+      tokens: Object.fromEntries(TOKEN_KEYS.map((key) => [
+        key,
+        typeof tokens[key] === "string" ? tokens[key] : null,
+      ])),
     };
   }
   return newest;
@@ -171,6 +163,25 @@ function nearReset(tokens) {
     const delta = reset - nowSeconds;
     return delta >= -5 * 60 && delta <= 15 * 60;
   });
+}
+
+function decodeJwt(access) {
+  try {
+    const parts = access.split(".");
+    if (parts.length !== 3) return;
+    const normalized = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+    const payload = JSON.parse(atob(padded));
+    if (!isRecord(payload)) return;
+    const auth = payload[JWT_CLAIM_PATH];
+    const accountId = isRecord(auth) ? auth.chatgpt_account_id : undefined;
+    return {
+      accountId: typeof accountId === "string" && accountId ? accountId : undefined,
+      expires: finiteNumber(payload.exp),
+    };
+  } catch {
+    return;
+  }
 }
 
 async function readLimitedJson(response) {
@@ -207,14 +218,15 @@ async function readLimitedJson(response) {
   return JSON.parse(new TextDecoder().decode(bytes));
 }
 
-export const HerdrOpenAIQuotaPlugin = async () => {
+function socketEndpoint(path) {
+  return process.platform === "win32" ? `\\\\.\\pipe\\${path}` : path;
+}
+
+function createQuotaReporter(ctx) {
   const paneId = process.env.HERDR_PANE_ID;
   const path = process.env.HERDR_SOCKET_PATH;
-  if (process.env.HERDR_ENV !== "1" || !path || !paneId) return {};
-
   const endpoint = socketEndpoint(path);
   const sockets = new Set();
-  let authGetter;
   let active = false;
   let disposed = false;
   let refreshTimer;
@@ -232,9 +244,7 @@ export const HerdrOpenAIQuotaPlugin = async () => {
 
   function scheduleRefresh(delay) {
     clearRefreshTimer();
-    if (!disposed && active) {
-      refreshTimer = timer(() => void refresh(), delay);
-    }
+    if (!disposed && active) refreshTimer = timer(() => void refresh(), delay);
   }
 
   function rpc(method, params) {
@@ -246,7 +256,10 @@ export const HerdrOpenAIQuotaPlugin = async () => {
       });
       sockets.add(client);
       let input = "";
+      let done = false;
       const finish = (result) => {
+        if (done) return;
+        done = true;
         sockets.delete(client);
         client.destroy();
         resolve(result);
@@ -264,20 +277,19 @@ export const HerdrOpenAIQuotaPlugin = async () => {
       });
       client.on("error", () => finish(undefined));
       client.on("end", () => finish(undefined));
+      client.on("close", () => finish(undefined));
     });
   }
 
   function report(tokens) {
-    reportChain = reportChain.then(() =>
-      rpc("pane.report_metadata", {
-        pane_id: paneId,
-        source: SOURCE,
-        agent: AGENT,
-        ttl_ms: TTL_MS,
-        seq: nextSeq(),
-        tokens,
-      }),
-    );
+    reportChain = reportChain.then(() => rpc("pane.report_metadata", {
+      pane_id: paneId,
+      source: SOURCE,
+      agent: AGENT,
+      ttl_ms: TTL_MS,
+      seq: nextSeq(),
+      tokens,
+    }));
     return reportChain;
   }
 
@@ -289,28 +301,37 @@ export const HerdrOpenAIQuotaPlugin = async () => {
     return true;
   }
 
+  async function resolveAuth() {
+    const result = await ctx.modelRegistry.getProviderAuth(PROVIDER);
+    const access = result?.auth?.apiKey;
+    if (typeof access !== "string" || !access) return { status: "signed_out" };
+    const jwt = decodeJwt(access);
+    if (!jwt?.accountId) return { status: "signed_out" };
+    if (jwt.expires !== undefined && jwt.expires * 1000 <= Date.now()) {
+      return { status: "stale" };
+    }
+    return { status: "ok", access, accountId: jwt.accountId };
+  }
+
   async function fetchUsage(auth) {
     abortController = new AbortController();
     const timeout = timer(() => abortController?.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const headers = {
-        accept: "application/json",
-        authorization: `Bearer ${auth.access}`,
-      };
-      if (typeof auth.accountId === "string" && auth.accountId) {
-        headers["chatgpt-account-id"] = auth.accountId;
-      }
       const response = await fetch(USAGE_URL, {
         method: "GET",
-        headers,
+        headers: {
+          accept: "application/json",
+          authorization: `Bearer ${auth.access}`,
+          "chatgpt-account-id": auth.accountId,
+        },
         redirect: "manual",
         signal: abortController.signal,
       });
       if (response.status === 401 || response.status === 403) {
-        return { tokens: blankTokens("signed_out", "OpenAI sign-in is required.") };
+        return blankTokens("signed_out", "OpenAI sign-in is required.");
       }
       if (!response.ok) throw new Error("usage request failed");
-      return { tokens: usageTokens(await readLimitedJson(response)) };
+      return usageTokens(await readLimitedJson(response));
     } finally {
       clearTimeout(timeout);
       abortController = undefined;
@@ -326,38 +347,31 @@ export const HerdrOpenAIQuotaPlugin = async () => {
       return;
     }
     inFlight = (async () => {
-      if (!authGetter) return;
       if (await reuseSharedQuota()) return;
       let auth;
       try {
-        auth = await authGetter();
+        auth = await resolveAuth();
       } catch {
-        if (active) {
-          await report(blankTokens("unavailable", "OpenAI auth is unavailable."));
-          scheduleRefresh(NORMAL_REFRESH_MS);
-        }
+        await report(blankTokens("unavailable", "OpenAI auth is unavailable."));
+        scheduleRefresh(NORMAL_REFRESH_MS);
         return;
       }
-      if (!isRecord(auth) || auth.type !== "oauth" || typeof auth.access !== "string") {
-        if (active) {
-          await report(blankTokens("signed_out", "OpenAI sign-in is required."));
-          scheduleRefresh(NORMAL_REFRESH_MS);
-        }
+      if (auth.status === "signed_out") {
+        await report(blankTokens("signed_out", "OpenAI sign-in is required."));
+        scheduleRefresh(NORMAL_REFRESH_MS);
         return;
       }
-      if (!finiteNumber(auth.expires) || auth.expires <= Date.now()) {
-        if (active) {
-          await report(blankTokens("stale", "OpenAI OAuth access has expired."));
-          scheduleRefresh(NORMAL_REFRESH_MS);
-        }
+      if (auth.status === "stale") {
+        await report(blankTokens("stale", "OpenAI OAuth access has expired."));
+        scheduleRefresh(NORMAL_REFRESH_MS);
         return;
       }
       lastRemoteAt = Date.now();
       try {
-        const result = await fetchUsage(auth);
+        const tokens = await fetchUsage(auth);
         if (!active || disposed) return;
-        await report(result.tokens);
-        scheduleRefresh(nearReset(result.tokens) ? RESET_REFRESH_MS : NORMAL_REFRESH_MS);
+        await report(tokens);
+        scheduleRefresh(nearReset(tokens) ? RESET_REFRESH_MS : NORMAL_REFRESH_MS);
       } catch {
         if (!active || disposed) return;
         await report(blankTokens("unavailable", "OpenAI quota is unavailable."));
@@ -385,13 +399,11 @@ export const HerdrOpenAIQuotaPlugin = async () => {
     const id = `${SOURCE}:focus:${Date.now()}`;
     let input = "";
     const client = net.createConnection(endpoint, () => {
-      client.write(
-        `${JSON.stringify({
-          id,
-          method: "events.subscribe",
-          params: { subscriptions: [{ type: "pane.focused" }] },
-        })}\n`,
-      );
+      client.write(`${JSON.stringify({
+        id,
+        method: "events.subscribe",
+        params: { subscriptions: [{ type: "pane.focused" }] },
+      })}\n`);
     });
     subscription = client;
     sockets.add(client);
@@ -429,26 +441,16 @@ export const HerdrOpenAIQuotaPlugin = async () => {
     client.on("close", reconnect);
   }
 
-  connectSubscription();
-  const current = await rpc("pane.current", { caller_pane_id: paneId });
-  setActive(current?.result?.pane?.focused === true);
-
   return {
-    auth: {
-      provider: "openai",
-      methods: [],
-      loader: async (getAuth) => {
-        authGetter = getAuth;
-        if (active) await refresh();
-        return {};
-      },
+    async start() {
+      connectSubscription();
+      const current = await rpc("pane.current", { caller_pane_id: paneId });
+      setActive(current?.result?.pane?.focused === true);
     },
-    event: async ({ event }) => {
-      if (event?.type === "session.idle" && active) {
-        scheduleRefresh(IDLE_REFRESH_DELAY_MS);
-      }
+    scheduleIdleRefresh() {
+      if (active) scheduleRefresh(IDLE_REFRESH_DELAY_MS);
     },
-    dispose: async () => {
+    async dispose() {
       disposed = true;
       clearRefreshTimer();
       clearTimeout(reconnectTimer);
@@ -460,4 +462,33 @@ export const HerdrOpenAIQuotaPlugin = async () => {
       await reportChain.catch(() => {});
     },
   };
-};
+}
+
+export default function (pi) {
+  if (
+    process.env.HERDR_ENV !== "1" ||
+    !process.env.HERDR_SOCKET_PATH ||
+    !process.env.HERDR_PANE_ID
+  ) return;
+
+  let reporter;
+  let rootSession = false;
+
+  pi.on("session_start", async (_event, ctx) => {
+    if (ctx?.mode !== "tui") return;
+    rootSession = true;
+    reporter = createQuotaReporter(ctx);
+    await reporter.start();
+  });
+
+  pi.on("agent_settled", () => {
+    if (rootSession) reporter?.scheduleIdleRefresh();
+  });
+
+  pi.on("session_shutdown", async () => {
+    rootSession = false;
+    const current = reporter;
+    reporter = undefined;
+    await current?.dispose();
+  });
+}

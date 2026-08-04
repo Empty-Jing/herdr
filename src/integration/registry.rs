@@ -9,6 +9,7 @@ pub(crate) fn integration_target_label(
 ) -> &'static str {
     match target {
         crate::api::schema::IntegrationTarget::Pi => "pi",
+        crate::api::schema::IntegrationTarget::PiQuota => "pi-quota",
         crate::api::schema::IntegrationTarget::Omp => "omp",
         crate::api::schema::IntegrationTarget::Claude => "claude",
         crate::api::schema::IntegrationTarget::Codex => "codex",
@@ -40,6 +41,7 @@ pub(crate) fn integration_target_command_names(
 ) -> &'static [&'static str] {
     match target {
         crate::api::schema::IntegrationTarget::Pi => &["pi"],
+        crate::api::schema::IntegrationTarget::PiQuota => &["pi"],
         crate::api::schema::IntegrationTarget::Omp => &["omp"],
         crate::api::schema::IntegrationTarget::Claude => &["claude"],
         crate::api::schema::IntegrationTarget::Codex => &["codex"],
@@ -70,6 +72,7 @@ pub(crate) fn integration_target_supported(target: crate::api::schema::Integrati
         matches!(
             target,
             crate::api::schema::IntegrationTarget::Pi
+                | crate::api::schema::IntegrationTarget::PiQuota
                 | crate::api::schema::IntegrationTarget::Omp
                 | crate::api::schema::IntegrationTarget::Claude
                 | crate::api::schema::IntegrationTarget::Codex
@@ -241,7 +244,11 @@ pub(crate) fn integration_recommendations() -> Vec<super::IntegrationRecommendat
     integration_specs()
         .into_iter()
         .filter_map(|(target, path, expected_version)| {
-            if target == crate::api::schema::IntegrationTarget::OpencodeQuota {
+            if matches!(
+                target,
+                crate::api::schema::IntegrationTarget::PiQuota
+                    | crate::api::schema::IntegrationTarget::OpencodeQuota
+            ) {
                 return None;
             }
             if !integration_target_supported(target) {
@@ -273,12 +280,17 @@ fn integration_specs() -> [(
     crate::api::schema::IntegrationTarget,
     io::Result<PathBuf>,
     u32,
-); 17] {
+); 18] {
     [
         (
             crate::api::schema::IntegrationTarget::Pi,
             pi_extension_dir().map(|dir| dir.join(super::PI_EXTENSION_INSTALL_NAME)),
             super::PI_INTEGRATION_VERSION,
+        ),
+        (
+            crate::api::schema::IntegrationTarget::PiQuota,
+            pi_extension_dir().map(|dir| dir.join(super::PI_QUOTA_EXTENSION_INSTALL_NAME)),
+            super::PI_QUOTA_INTEGRATION_VERSION,
         ),
         (
             crate::api::schema::IntegrationTarget::Omp,

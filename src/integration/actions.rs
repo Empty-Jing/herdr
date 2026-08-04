@@ -5,11 +5,11 @@ use super::targets::{
     install_antigravity_cli, install_claude, install_codex, install_copilot, install_cursor,
     install_devin, install_droid, install_grok, install_hermes, install_kilo, install_kimi,
     install_mastracode, install_omp, install_opencode, install_opencode_quota, install_pi,
-    install_qodercli, install_qwen, uninstall_antigravity_cli, uninstall_claude, uninstall_codex,
-    uninstall_copilot, uninstall_cursor, uninstall_devin, uninstall_droid, uninstall_grok,
-    uninstall_hermes, uninstall_kilo, uninstall_kimi, uninstall_mastracode, uninstall_omp,
-    uninstall_opencode, uninstall_opencode_quota, uninstall_pi, uninstall_qodercli,
-    uninstall_qwen,
+    install_pi_quota, install_qodercli, install_qwen, uninstall_antigravity_cli, uninstall_claude,
+    uninstall_codex, uninstall_copilot, uninstall_cursor, uninstall_devin, uninstall_droid,
+    uninstall_grok, uninstall_hermes, uninstall_kilo, uninstall_kimi, uninstall_mastracode,
+    uninstall_omp, uninstall_opencode, uninstall_opencode_quota, uninstall_pi, uninstall_pi_quota,
+    uninstall_qodercli, uninstall_qwen,
 };
 use super::version::{agent_version_requirement, enforce_agent_version};
 use super::{KIMI_MIN_VERSION, PI_EXTENSION_INSTALL_NAME};
@@ -40,6 +40,13 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
         crate::api::schema::IntegrationTarget::Pi => {
             let path = install_pi()?;
             vec![format!("installed pi integration to {}", path.display())]
+        }
+        crate::api::schema::IntegrationTarget::PiQuota => {
+            let path = install_pi_quota()?;
+            vec![format!(
+                "installed pi quota integration to {}",
+                path.display()
+            )]
         }
         crate::api::schema::IntegrationTarget::Omp => {
             let installed = install_omp()?;
@@ -285,6 +292,20 @@ pub(crate) fn uninstall_target(
             } else {
                 vec![format!(
                     "no pi integration extension found at {}",
+                    result.extension_path.display()
+                )]
+            }
+        }
+        crate::api::schema::IntegrationTarget::PiQuota => {
+            let result = uninstall_pi_quota()?;
+            if result.removed_extension {
+                vec![format!(
+                    "removed pi quota integration extension at {}",
+                    result.extension_path.display()
+                )]
+            } else {
+                vec![format!(
+                    "no pi quota integration extension found at {}",
                     result.extension_path.display()
                 )]
             }

@@ -55,7 +55,8 @@ use super::{
     OMP_EXTENSION_ASSET, OMP_EXTENSION_INSTALL_NAME, OPENCODE_PLUGIN_ASSET,
     OPENCODE_PLUGIN_INSTALL_NAME, OPENCODE_TUI_PLUGIN_ASSET, OPENCODE_TUI_PLUGIN_INSTALL_NAME,
     OPENCODE_TUI_PLUGIN_SPEC, OPENCODE_QUOTA_PLUGIN_ASSET, OPENCODE_QUOTA_PLUGIN_INSTALL_NAME,
-    PI_EXTENSION_ASSET, PI_EXTENSION_INSTALL_NAME, QODERCLI_HOOK_ASSET, QODERCLI_HOOK_EVENTS,
+    PI_EXTENSION_ASSET, PI_EXTENSION_INSTALL_NAME, PI_QUOTA_EXTENSION_ASSET,
+    PI_QUOTA_EXTENSION_INSTALL_NAME, QODERCLI_HOOK_ASSET, QODERCLI_HOOK_EVENTS,
     QODERCLI_HOOK_INSTALL_NAME, QODERCLI_REMOVED_LIFECYCLE_HOOK_EVENTS,
     QWEN_HOOK_ASSET, QWEN_HOOK_EVENTS, QWEN_HOOK_INSTALL_NAME,
 };
@@ -79,6 +80,15 @@ pub(crate) fn install_pi() -> io::Result<PathBuf> {
 
     let path = dir.join(PI_EXTENSION_INSTALL_NAME);
     fs::write(&path, PI_EXTENSION_ASSET)?;
+    Ok(path)
+}
+
+pub(crate) fn install_pi_quota() -> io::Result<PathBuf> {
+    let dir = pi_extension_dir()?;
+    ensure_extension_dir(&dir, "pi")?;
+
+    let path = dir.join(PI_QUOTA_EXTENSION_INSTALL_NAME);
+    fs::write(&path, PI_QUOTA_EXTENSION_ASSET)?;
     Ok(path)
 }
 
@@ -550,6 +560,16 @@ pub(crate) fn install_hermes() -> io::Result<HermesInstallPaths> {
 
 pub(crate) fn uninstall_pi() -> io::Result<PiUninstallResult> {
     let extension_path = pi_extension_dir()?.join(PI_EXTENSION_INSTALL_NAME);
+    let removed_extension = remove_file_if_exists(&extension_path)?;
+
+    Ok(PiUninstallResult {
+        extension_path,
+        removed_extension,
+    })
+}
+
+pub(crate) fn uninstall_pi_quota() -> io::Result<PiUninstallResult> {
+    let extension_path = pi_extension_dir()?.join(PI_QUOTA_EXTENSION_INSTALL_NAME);
     let removed_extension = remove_file_if_exists(&extension_path)?;
 
     Ok(PiUninstallResult {

@@ -230,10 +230,10 @@ test("fetches immediately when its pane gains focus", async () => {
   expect(latestTokens().quota_status).toBe("ok");
 });
 
-test("reuses fresh quota reported by another OpenCode pane", async () => {
+test("reuses fresh quota reported by a Pi pane", async () => {
   paneList = [{
     pane_id: "test:p2",
-    agent: "opencode",
+    agent: "pi",
     tokens: {
       quota_status: "ok",
       quota_provider: "openai",

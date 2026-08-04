@@ -1650,6 +1650,10 @@ mod tests {
     }
 
     fn app_with_openai_quota() -> AppState {
+        app_with_openai_quota_for(Agent::OpenCode)
+    }
+
+    fn app_with_openai_quota_for(agent: Agent) -> AppState {
         let mut app = AppState::test_new();
         let workspace = Workspace::test_new("one");
         let pane_id = workspace.tabs[0].root_pane;
@@ -1660,7 +1664,7 @@ mod tests {
             .attached_terminal_id
             .clone();
         let terminal = app.terminals.get_mut(&terminal_id).unwrap();
-        terminal.detected_agent = Some(Agent::OpenCode);
+        terminal.detected_agent = Some(agent);
         let reset_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -1718,7 +1722,40 @@ mod tests {
     }
 
     #[test]
-    fn quota_card_stays_hidden_when_opencode_pane_is_not_active() {
+    fn active_pi_quota_renders_with_the_shared_card() {
+        let app = app_with_openai_quota_for(Agent::Pi);
+        let area = Rect::new(0, 0, 32, 20);
+        let (workspace_area, _) = expanded_sidebar_sections(area, app.sidebar_section_split);
+
+        assert_ne!(
+            workspace_quota_card_rect(&app, workspace_area, false),
+            Rect::default()
+        );
+    }
+
+    #[test]
+    fn active_pi_without_tokens_reuses_opencode_quota() {
+        let mut app = app_with_openai_quota();
+        let workspace = Workspace::test_new("two");
+        let pane_id = workspace.tabs[0].root_pane;
+        app.workspaces.push(workspace);
+        app.ensure_test_terminals();
+        app.active = Some(1);
+        let terminal_id = app.workspaces[1].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(Agent::Pi);
+        let area = Rect::new(0, 0, 32, 20);
+        let (workspace_area, _) = expanded_sidebar_sections(area, app.sidebar_section_split);
+
+        assert_ne!(
+            workspace_quota_card_rect(&app, workspace_area, false),
+            Rect::default()
+        );
+    }
+
+    #[test]
+    fn quota_card_stays_hidden_when_supported_agent_pane_is_not_active() {
         let mut app = app_with_openai_quota();
         app.workspaces.push(Workspace::test_new("two"));
         app.ensure_test_terminals();

@@ -13,6 +13,7 @@ Herdr 自动检测受支持的智能体。官方集成可以额外提供用于�
 
 ```bash
 herdr integration install pi
+herdr integration install pi-quota
 herdr integration install omp
 herdr integration install claude
 herdr integration install codex
@@ -36,6 +37,7 @@ herdr integration install grok
 
 ```bash
 herdr integration uninstall pi
+herdr integration uninstall pi-quota
 herdr integration uninstall omp
 herdr integration uninstall claude
 herdr integration uninstall codex
@@ -112,6 +114,20 @@ Herdr 把内置扩展写入:
 ```
 
 如果设置了 `PI_CODING_AGENT_DIR`,Herdr 会改为写入 `$PI_CODING_AGENT_DIR/extensions/herdr-agent-state.ts`。如果 Pi agent 目录已经存在,Herdr 会创建 extensions 目录。卸载只删除那个扩展文件。
+
+### 可选 OpenAI 额度卡片
+
+安装独立且需要显式启用的 Pi 额度扩展:
+
+```bash
+herdr integration install pi-quota
+```
+
+Herdr 会将它写入 `~/.pi/agent/extensions/herdr-openai-quota.ts`,或 `PI_CODING_AGENT_DIR` 解析出的扩展目录。安装后,在已有 Pi 会话中运行 `/reload`,或重启 Pi。`herdr integration uninstall pi-quota` 只删除额度扩展。
+
+只有对应 Pi 窗格处于活动状态时,该扩展才会通过 Pi 的扩展 API 解析现有 `openai-codex` OAuth 登录,请求 `https://chatgpt.com/backend-api/wham/usage`,并只向 Herdr 上报归一化额度元数据。它不会上报 access token、account id 或原始响应。Pi 和 OpenCode 额度集成会互相复用新鲜元数据,所以在两个智能体间切换不会产生重复远程请求。
+
+活动的 Pi 和 OpenCode 窗格共用同一张额度卡片。API Key 登录不提供 ChatGPT 订阅额度,并且 ChatGPT usage endpoint 不是 OpenAI 的公开 API,可能独立于 Herdr 发生变化。
 
 ## OMP
 
