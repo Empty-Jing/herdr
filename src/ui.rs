@@ -597,6 +597,7 @@ fn _build_hints(items: &[(&str, &str)], key_style: Style, dim_style: Style) -> V
 mod tests {
     use super::keybind_help::keybind_help_groups;
     use super::scrollbar::scrollbar_thumb;
+    use super::text::display_width_u16;
     use super::*;
     use crate::{app::state::ViewLayout, layout::PaneInfo, workspace::Workspace};
     use ratatui::style::Color;
@@ -703,6 +704,25 @@ mod tests {
         terminal
             .backend_mut()
             .assert_cursor_position((focused.inner_rect.x + 4, focused.inner_rect.y));
+    }
+
+    #[test]
+    fn rename_dialog_positions_host_cursor_at_input_end() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.mode = Mode::RenameTab;
+        app.name_input = "标签".into();
+
+        let area = Rect::new(0, 0, 80, 20);
+        compute_view(&mut app, area);
+        let mut terminal = Terminal::new(TestBackend::new(area.width, area.height)).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+
+        let popup = centered_popup_rect(area, 56, 7).expect("rename popup");
+        let expected = (
+            popup.x + 2 + display_width_u16(&app.name_input),
+            popup.y + 3,
+        );
+        terminal.backend_mut().assert_cursor_position(expected);
     }
 
     #[test]

@@ -113,6 +113,17 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
             .bg(app.palette.surface0)
             .add_modifier(Modifier::BOLD),
     );
+
+    let cursor_x = input_rect
+        .x
+        .saturating_add(1)
+        .saturating_add(display_width_u16(&app.name_input))
+        .min(
+            input_rect
+                .x
+                .saturating_add(input_rect.width.saturating_sub(1)),
+        );
+    frame.set_cursor_position((cursor_x, input_rect.y));
 }
 
 pub(crate) fn new_linked_worktree_inner_rect(area: Rect) -> Option<Rect> {
