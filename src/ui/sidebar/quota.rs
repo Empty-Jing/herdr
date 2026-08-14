@@ -49,6 +49,10 @@ fn active_card(app: &AppState) -> Option<Card> {
     })
 }
 
+pub(super) fn available(app: &AppState) -> bool {
+    active_card(app).is_some()
+}
+
 fn card_from_tokens(tokens: &std::collections::HashMap<String, String>) -> Option<Card> {
     let status = tokens.get("quota_status")?.clone();
     if tokens.get("quota_provider").map(String::as_str) != Some("openai") {

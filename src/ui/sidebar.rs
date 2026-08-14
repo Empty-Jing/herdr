@@ -1,3 +1,4 @@
+mod memory;
 mod quota;
 mod tokens;
 
@@ -20,6 +21,35 @@ use crate::terminal::TerminalRuntimeRegistry;
 
 const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
 const AGENT_PANEL_HEADER_ROWS: u16 = 3;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct BottomCardHeights {
+    memory: u16,
+    quota: u16,
+}
+
+impl BottomCardHeights {
+    fn total(self) -> u16 {
+        self.memory.saturating_add(self.quota)
+    }
+}
+
+fn bottom_card_heights_in_body(app: &AppState, body: Rect) -> BottomCardHeights {
+    let quota_height = quota::height_in_body(app, body);
+    if quota::available(app) && quota_height == 0 {
+        return BottomCardHeights::default();
+    }
+    let memory_body = Rect::new(
+        body.x,
+        body.y,
+        body.width,
+        body.height.saturating_sub(quota_height),
+    );
+    BottomCardHeights {
+        memory: memory::height_in_body(app, memory_body),
+        quota: quota_height,
+    }
+}
 
 pub(crate) struct AgentPanelEntry {
     pub ws_idx: usize,
@@ -549,7 +579,8 @@ pub(crate) fn workspace_list_entries_body_rect(
     has_scrollbar: bool,
 ) -> Rect {
     let body = workspace_list_body_rect(area, has_scrollbar);
-    let card_height = quota::height_in_body(app, workspace_list_body_rect(area, false));
+    let card_height =
+        bottom_card_heights_in_body(app, workspace_list_body_rect(area, false)).total();
     Rect::new(
         body.x,
         body.y,
@@ -558,18 +589,30 @@ pub(crate) fn workspace_list_entries_body_rect(
     )
 }
 
-fn workspace_quota_card_rect(app: &AppState, area: Rect, has_scrollbar: bool) -> Rect {
+fn workspace_bottom_card_rects(app: &AppState, area: Rect, has_scrollbar: bool) -> (Rect, Rect) {
     let body = workspace_list_body_rect(area, has_scrollbar);
-    let height = quota::height_in_body(app, workspace_list_body_rect(area, false));
-    if height == 0 {
-        return Rect::default();
-    }
-    Rect::new(
-        body.x.saturating_add(1),
-        body.y + body.height.saturating_sub(height),
-        body.width.saturating_sub(2),
-        height,
-    )
+    let heights = bottom_card_heights_in_body(app, workspace_list_body_rect(area, false));
+    let quota = if heights.quota > 0 {
+        Rect::new(
+            body.x.saturating_add(1),
+            body.y + body.height.saturating_sub(heights.quota),
+            body.width.saturating_sub(2),
+            heights.quota,
+        )
+    } else {
+        Rect::default()
+    };
+    let memory = if heights.memory > 0 {
+        Rect::new(
+            body.x.saturating_add(1),
+            body.y + body.height.saturating_sub(heights.total()),
+            body.width.saturating_sub(2),
+            heights.memory,
+        )
+    } else {
+        Rect::default()
+    };
+    (memory, quota)
 }
 
 fn resolved_agent_rows(app: &AppState, entry: &AgentPanelEntry) -> Vec<Vec<ResolvedToken>> {
@@ -1428,7 +1471,10 @@ fn render_workspace_list(
         render_scrollbar(frame, metrics, track, p.surface_dim, p.overlay0, "▕");
     }
 
-    let quota_rect = workspace_quota_card_rect(app, area, has_scrollbar);
+    let (memory_rect, quota_rect) = workspace_bottom_card_rects(app, area, has_scrollbar);
+    if memory_rect != Rect::default() {
+        memory::render(app, frame, memory_rect);
+    }
     if quota_rect != Rect::default() {
         quota::render(app, frame, quota_rect);
     }
@@ -1687,6 +1733,37 @@ mod tests {
         app
     }
 
+    fn app_with_memory() -> AppState {
+        let mut app = AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("one")];
+        app.ensure_test_terminals();
+        app.active = Some(0);
+        app.metadata_tokens.patch(
+            std::collections::HashMap::from([
+                ("memory_status".into(), Some("ok".into())),
+                (
+                    "memory_row_0".into(),
+                    Some("chenjing54|5368709120|53687091200".into()),
+                ),
+                (
+                    "memory_row_1".into(),
+                    Some("xiezx11|25769803776|53687091200".into()),
+                ),
+                (
+                    "memory_row_2".into(),
+                    Some("yangyp17|45634027520|53687091200".into()),
+                ),
+                (
+                    "memory_row_3".into(),
+                    Some("Swap|7516192768|8589934592".into()),
+                ),
+            ]),
+            None,
+            std::time::Instant::now(),
+        );
+        app
+    }
+
     #[test]
     fn active_opencode_quota_renders_at_bottom_of_spaces() {
         let app = app_with_openai_quota();
@@ -1694,7 +1771,7 @@ mod tests {
         let (workspace_area, agent_area) =
             expanded_sidebar_sections(area, app.sidebar_section_split);
         let list_body = workspace_list_entries_body_rect(&app, workspace_area, false);
-        let quota_rect = workspace_quota_card_rect(&app, workspace_area, false);
+        let (_, quota_rect) = workspace_bottom_card_rects(&app, workspace_area, false);
         let agent_body = agent_panel_body_rect(agent_area, false);
         let mut terminal = Terminal::new(TestBackend::new(32, 20)).unwrap();
 
@@ -1728,7 +1805,7 @@ mod tests {
         let (workspace_area, _) = expanded_sidebar_sections(area, app.sidebar_section_split);
 
         assert_ne!(
-            workspace_quota_card_rect(&app, workspace_area, false),
+            workspace_bottom_card_rects(&app, workspace_area, false).1,
             Rect::default()
         );
     }
@@ -1749,7 +1826,7 @@ mod tests {
         let (workspace_area, _) = expanded_sidebar_sections(area, app.sidebar_section_split);
 
         assert_ne!(
-            workspace_quota_card_rect(&app, workspace_area, false),
+            workspace_bottom_card_rects(&app, workspace_area, false).1,
             Rect::default()
         );
     }
@@ -1785,9 +1862,84 @@ mod tests {
         let (workspace_area, _) = expanded_sidebar_sections(area, app.sidebar_section_split);
 
         assert_ne!(
-            workspace_quota_card_rect(&app, workspace_area, false),
+            workspace_bottom_card_rects(&app, workspace_area, false).1,
             Rect::default()
         );
+    }
+
+    #[test]
+    fn memory_card_renders_configured_rows() {
+        let app = app_with_memory();
+        let area = Rect::new(0, 0, 42, 24);
+        let (workspace_area, _) = expanded_sidebar_sections(area, app.sidebar_section_split);
+        let card_rect = workspace_bottom_card_rects(&app, workspace_area, false).0;
+        let mut terminal = Terminal::new(TestBackend::new(42, 24)).unwrap();
+
+        terminal
+            .draw(|frame| render_sidebar(&app, &TerminalRuntimeRegistry::new(), frame, area))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+
+        assert_ne!(card_rect, Rect::default());
+        assert!(row_text(buffer, card_rect.y, area.width).contains("Memory"));
+        assert!(row_text(buffer, card_rect.y + 1, area.width).contains("chenjin"));
+        assert!(row_text(buffer, card_rect.y + 1, area.width).contains("10%"));
+        assert!(!row_text(buffer, card_rect.y + 1, area.width).contains("/50G"));
+        assert!(row_text(buffer, card_rect.y + 2, area.width).contains("xiezx11"));
+        assert!(row_text(buffer, card_rect.y + 3, area.width).contains("yangyp17"));
+        assert!(row_text(buffer, card_rect.y + 4, area.width).contains("Swap"));
+    }
+
+    #[test]
+    fn memory_card_keeps_a_progress_bar_at_default_sidebar_width() {
+        let app = app_with_memory();
+        let area = Rect::new(0, 0, 26, 24);
+        let (workspace_area, _) = expanded_sidebar_sections(area, app.sidebar_section_split);
+        let card_rect = workspace_bottom_card_rects(&app, workspace_area, false).0;
+        let mut terminal = Terminal::new(TestBackend::new(26, 24)).unwrap();
+
+        terminal
+            .draw(|frame| render_sidebar(&app, &TerminalRuntimeRegistry::new(), frame, area))
+            .unwrap();
+
+        let first_row = row_text(terminal.backend().buffer(), card_rect.y + 1, area.width);
+        assert!(first_row.contains("chenjin"));
+        assert!(first_row.contains('█') || first_row.contains('░'));
+        assert!(first_row.contains("10%"));
+        assert!(!first_row.contains("/50G"));
+    }
+
+    #[test]
+    fn openai_and_memory_cards_stack_when_space_allows() {
+        let memory = app_with_memory();
+        let mut app = app_with_openai_quota();
+        app.metadata_tokens = memory.metadata_tokens;
+        let area = Rect::new(0, 0, 42, 40);
+        let (workspace_area, _) = expanded_sidebar_sections(area, app.sidebar_section_split);
+        let (memory_rect, quota_rect) = workspace_bottom_card_rects(&app, workspace_area, false);
+        let mut terminal = Terminal::new(TestBackend::new(42, 40)).unwrap();
+
+        terminal
+            .draw(|frame| render_sidebar(&app, &TerminalRuntimeRegistry::new(), frame, area))
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        assert!(row_text(buffer, memory_rect.y, area.width).contains("Memory"));
+        assert!(row_text(buffer, quota_rect.y, area.width).contains("OpenAI"));
+        assert_eq!(memory_rect.y + memory_rect.height, quota_rect.y);
+    }
+
+    #[test]
+    fn openai_card_hides_memory_when_only_one_card_fits() {
+        let memory = app_with_memory();
+        let mut app = app_with_openai_quota();
+        app.metadata_tokens = memory.metadata_tokens;
+        let area = Rect::new(0, 0, 42, 24);
+        let (workspace_area, _) = expanded_sidebar_sections(area, app.sidebar_section_split);
+        let (memory_rect, quota_rect) = workspace_bottom_card_rects(&app, workspace_area, false);
+
+        assert_eq!(memory_rect, Rect::default());
+        assert_ne!(quota_rect, Rect::default());
     }
 
     #[test]

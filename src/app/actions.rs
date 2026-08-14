@@ -994,9 +994,14 @@ fn activity_summary_for_panes<'a>(
 
 impl AppState {
     pub(crate) fn next_agent_metadata_expiry(&self) -> Option<std::time::Instant> {
-        self.terminals
-            .values()
-            .filter_map(|terminal| terminal.next_agent_metadata_expiry())
+        self.metadata_tokens
+            .next_expiry()
+            .into_iter()
+            .chain(
+                self.terminals
+                    .values()
+                    .filter_map(|terminal| terminal.next_agent_metadata_expiry()),
+            )
             .chain(
                 self.terminals
                     .values()
@@ -1067,7 +1072,8 @@ impl AppState {
     pub(crate) fn expire_metadata_tokens(
         &mut self,
         now: std::time::Instant,
-    ) -> (Vec<(usize, PaneId)>, Vec<usize>) {
+    ) -> (bool, Vec<(usize, PaneId)>, Vec<usize>) {
+        let session_changed = self.metadata_tokens.expire_at(now);
         let pane_terminals = self
             .workspaces
             .iter()
@@ -1103,7 +1109,7 @@ impl AppState {
                 workspace.metadata_tokens.expire_at(now).then_some(ws_idx)
             })
             .collect();
-        (changed_panes, changed_workspaces)
+        (session_changed, changed_panes, changed_workspaces)
     }
 
     pub(crate) fn pane_is_in_active_tab(&self, ws_idx: usize, pane_id: PaneId) -> bool {

@@ -47,6 +47,11 @@ pub(crate) struct OpenCodeInstallPaths {
 }
 
 #[derive(Debug)]
+pub(crate) struct OpenCodeQuotaInstallPath {
+    pub plugin_path: PathBuf,
+}
+
+#[derive(Debug)]
 pub(crate) struct KiloInstallPaths {
     pub plugin_path: PathBuf,
 }
@@ -246,6 +251,12 @@ pub(crate) struct OpenCodeUninstallResult {
     pub removed_plugin: bool,
     pub removed_tui_plugin: bool,
     pub updated_tui_config: bool,
+}
+
+#[derive(Debug)]
+pub(crate) struct OpenCodeQuotaUninstallResult {
+    pub plugin_path: PathBuf,
+    pub removed_plugin: bool,
 }
 
 #[derive(Debug)]

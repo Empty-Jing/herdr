@@ -36,8 +36,9 @@ use super::types::{
     GrokUninstallResult, HermesInstallPaths, HermesUninstallResult, KiloInstallPaths,
     KiloUninstallResult, KimiInstallPaths, KimiUninstallResult, MastracodeInstallPaths,
     MastracodeUninstallResult, OmpInstallPaths, OmpUninstallResult, OpenCodeInstallPaths,
-    OpenCodeUninstallResult, PiUninstallResult, QodercliInstallPaths, QodercliUninstallResult,
-    QwenInstallPaths, QwenUninstallResult,
+    OpenCodeQuotaInstallPath, OpenCodeQuotaUninstallResult, OpenCodeUninstallResult,
+    PiUninstallResult, QodercliInstallPaths, QodercliUninstallResult, QwenInstallPaths,
+    QwenUninstallResult,
 };
 use super::{
     ANTIGRAVITY_CLI_HOOK_ASSET, ANTIGRAVITY_CLI_HOOK_BLOCK_NAME, ANTIGRAVITY_CLI_HOOK_EVENTS,
@@ -53,12 +54,12 @@ use super::{
     KIMI_HOOK_ASSET, KIMI_HOOK_INSTALL_NAME, MASTRACODE_HOOK_ASSET, MASTRACODE_HOOK_EVENTS,
     MASTRACODE_HOOK_INSTALL_NAME, MASTRACODE_HOOK_TIMEOUT_MS, MASTRACODE_REMOVED_HOOK_EVENTS,
     OMP_EXTENSION_ASSET, OMP_EXTENSION_INSTALL_NAME, OPENCODE_PLUGIN_ASSET,
-    OPENCODE_PLUGIN_INSTALL_NAME, OPENCODE_TUI_PLUGIN_ASSET, OPENCODE_TUI_PLUGIN_INSTALL_NAME,
-    OPENCODE_TUI_PLUGIN_SPEC, OPENCODE_QUOTA_PLUGIN_ASSET, OPENCODE_QUOTA_PLUGIN_INSTALL_NAME,
+    OPENCODE_PLUGIN_INSTALL_NAME, OPENCODE_QUOTA_PLUGIN_ASSET, OPENCODE_QUOTA_PLUGIN_INSTALL_NAME,
+    OPENCODE_TUI_PLUGIN_ASSET, OPENCODE_TUI_PLUGIN_INSTALL_NAME, OPENCODE_TUI_PLUGIN_SPEC,
     PI_EXTENSION_ASSET, PI_EXTENSION_INSTALL_NAME, PI_QUOTA_EXTENSION_ASSET,
     PI_QUOTA_EXTENSION_INSTALL_NAME, QODERCLI_HOOK_ASSET, QODERCLI_HOOK_EVENTS,
-    QODERCLI_HOOK_INSTALL_NAME, QODERCLI_REMOVED_LIFECYCLE_HOOK_EVENTS,
-    QWEN_HOOK_ASSET, QWEN_HOOK_EVENTS, QWEN_HOOK_INSTALL_NAME,
+    QODERCLI_HOOK_INSTALL_NAME, QODERCLI_REMOVED_LIFECYCLE_HOOK_EVENTS, QWEN_HOOK_ASSET,
+    QWEN_HOOK_EVENTS, QWEN_HOOK_INSTALL_NAME,
 };
 
 fn ensure_extension_dir(dir: &Path, agent: &str) -> io::Result<()> {
@@ -485,7 +486,7 @@ pub(crate) fn install_opencode() -> io::Result<OpenCodeInstallPaths> {
     })
 }
 
-pub(crate) fn install_opencode_quota() -> io::Result<OpenCodeInstallPaths> {
+pub(crate) fn install_opencode_quota() -> io::Result<OpenCodeQuotaInstallPath> {
     let dir = opencode_dir()?;
     if !dir.is_dir() {
         return Err(io::Error::other(format!(
@@ -500,7 +501,7 @@ pub(crate) fn install_opencode_quota() -> io::Result<OpenCodeInstallPaths> {
     let plugin_path = plugins_dir.join(OPENCODE_QUOTA_PLUGIN_INSTALL_NAME);
     fs::write(&plugin_path, OPENCODE_QUOTA_PLUGIN_ASSET)?;
 
-    Ok(OpenCodeInstallPaths { plugin_path })
+    Ok(OpenCodeQuotaInstallPath { plugin_path })
 }
 
 pub(crate) fn install_kilo() -> io::Result<KiloInstallPaths> {
@@ -888,13 +889,13 @@ pub(crate) fn uninstall_opencode() -> io::Result<OpenCodeUninstallResult> {
     })
 }
 
-pub(crate) fn uninstall_opencode_quota() -> io::Result<OpenCodeUninstallResult> {
+pub(crate) fn uninstall_opencode_quota() -> io::Result<OpenCodeQuotaUninstallResult> {
     let plugin_path = opencode_dir()?
         .join("plugins")
         .join(OPENCODE_QUOTA_PLUGIN_INSTALL_NAME);
     let removed_plugin = remove_file_if_exists(&plugin_path)?;
 
-    Ok(OpenCodeUninstallResult {
+    Ok(OpenCodeQuotaUninstallResult {
         plugin_path,
         removed_plugin,
     })

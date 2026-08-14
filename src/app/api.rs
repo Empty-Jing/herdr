@@ -839,6 +839,17 @@ impl App {
         });
     }
 
+    pub(crate) fn emit_session_token_updated(&mut self) {
+        // Token updates bypass plugin hooks so metadata producers cannot
+        // recursively trigger themselves.
+        self.event_hub.push(crate::api::schema::EventEnvelope {
+            event: crate::api::schema::EventKind::SessionMetadataUpdated,
+            data: crate::api::schema::EventData::SessionMetadataUpdated {
+                tokens: self.state.metadata_tokens.values(),
+            },
+        });
+    }
+
     pub(crate) fn sync_focus_events(&mut self) {
         self.sync_focus_events_with_outer_event(None);
     }
@@ -1010,6 +1021,9 @@ impl App {
                 );
             }
             Method::SessionSnapshot(_) => return self.handle_session_snapshot(request.id),
+            Method::SessionReportMetadata(params) => {
+                return self.handle_session_report_metadata(request.id, params);
+            }
             Method::WorkspaceList(_) => return self.handle_workspace_list(request.id),
             Method::WorkspaceGet(target) => return self.handle_workspace_get(request.id, target),
             Method::WorkspaceCreate(params) => {

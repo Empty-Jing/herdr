@@ -733,6 +733,15 @@ fn session_command() -> Command {
         .about("Manage named persistent sessions")
         .subcommand(Command::new("list").about("List sessions").arg(json_flag()))
         .subcommand(
+            Command::new("report-metadata")
+                .about("Report display-only session metadata")
+                .arg(option("source", "ID").required(true))
+                .arg(repeatable_option("token", "NAME=VALUE"))
+                .arg(repeatable_option("clear-token", "NAME"))
+                .arg(option("seq", "N"))
+                .arg(option("ttl-ms", "N")),
+        )
+        .subcommand(
             Command::new("attach")
                 .about("Attach to a session")
                 .arg(required("name", "NAME")),
@@ -1137,6 +1146,7 @@ mod tests {
     #[test]
     fn spec_marks_runtime_required_options_as_required() {
         for (path, options) in [
+            (&["session", "report-metadata"][..], &["source"][..]),
             (&["workspace", "report-metadata"][..], &["source"][..]),
             (&["pane", "neighbor"][..], &["direction"][..]),
             (&["pane", "focus"][..], &["direction"][..]),

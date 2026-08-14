@@ -95,7 +95,7 @@ herdr pane read w1:p2 --source recent --lines 50
 | サーバー | `ping`、`server.stop`、`server.reload_config`、`server.agent_manifests`、`server.reload_agent_manifests` |
 | 通知 | `notification.show` |
 | クライアント | `client.window_title.set`、`client.window_title.clear` |
-| セッション | `session.snapshot` |
+| セッション | `session.snapshot`、`session.report_metadata` |
 | ワークスペース | `workspace.create`、`workspace.list`、`workspace.get`、`workspace.focus`、`workspace.rename`、`workspace.move`、`workspace.move_block`、`workspace.report_metadata`、`workspace.close` |
 | Worktree | `worktree.list`、`worktree.create`、`worktree.open`、`worktree.remove` |
 | タブ | `tab.create`、`tab.list`、`tab.get`、`tab.focus`、`tab.rename`、`tab.move`、`tab.close` |
@@ -111,7 +111,7 @@ herdr pane read w1:p2 --source recent --lines 50
 
 `workspace.move_block` は、順序付きの `workspace_ids` を `before_workspace_id` の前へアトミックに移動します。アンカーを省略するとブロックを末尾へ移動します。id は一意である必要があり、アンカーをブロックに含めることはできません。レスポンスにはサーバーが確定した順序付きワークスペース一覧が含まれます。
 
-`session.snapshot` は、独自のローカルランタイムキャッシュを持つクライアント向けに、一度限りのブートストラップスナップショットを返します。レスポンスには、バージョン/プロトコルメタデータ、フォーカス中のワークスペース/タブ/ペイン id、ワークスペース、タブ、ペイン、タブレイアウト、エージェントの各レコードが含まれます。これは購読ではありません。取得後はリソースイベントを購読し、そのイベントでローカルキャッシュを更新してください。再接続後やキャッシュが古い可能性がある場合は、`session.snapshot` を再度呼び出します。ワークスペースレコードには、関連付けられた worktree の出自情報も含まれます。リポジトリ全体の worktree 検出には引き続き `worktree.list` を使います。
+`session.snapshot` は、独自のローカルランタイムキャッシュを持つクライアント向けに、一度限りのブートストラップスナップショットを返します。レスポンスには、バージョン/プロトコルメタデータ、フォーカス中のワークスペース/タブ/ペイン id、セッショントークン、ワークスペース、タブ、ペイン、タブレイアウト、エージェントの各レコードが含まれます。これは購読ではありません。取得後はリソースイベントを購読し、そのイベントでローカルキャッシュを更新してください。再接続後やキャッシュが古い可能性がある場合は、`session.snapshot` を再度呼び出します。ワークスペースレコードには、関連付けられた worktree の出自情報も含まれます。リポジトリ全体の worktree 検出には引き続き `worktree.list` を使います。
 
 CLI の `herdr api snapshot` は、クライアントやエージェントが簡単にブートストラップできるよう、現在の `session.snapshot` レスポンスを JSON で出力します。
 
@@ -611,13 +611,15 @@ Herdr に保存されたネイティブセッション参照があるとき、`p
 
 workspace の get/list 応答は結果の `tokens` マップを公開し、スペースサイドバー行では `$jj_status` のような値を描画できます。変更と TTL の失効は、最新のワークスペーススナップショットを含む `workspace.metadata_updated` を発行します。このメタデータイベントは API 購読者に届きますが、プラグインイベントフックは実行しません。
 
+セッショントークンも同じパッチ規約を使い、`session_id` はありません。接続済みソケットがセッションを選択しています。`session.report_metadata` には `source`、`tokens`、任意の `seq` と `ttl_ms` を渡します。`session.snapshot` は結果の `tokens` マップを公開します。変更と TTL の失効は、現在の完全なトークンマップを持つ `session.metadata_updated` を発行し、プラグインイベントフックは実行しません。
+
 表示テキストは保存前に正規化されます。Herdr は前後の空白を取り除き、制御文字を除去し、`title`、`display_agent`、各状態ラベル、トークン値を 80 文字に制限します。正規化後に空になったトークン値は、そのキーをクリアします。
 
 `source` と `applies_to_source` はソース識別子です。80 文字以下で、ASCII の英字、数字、コロン、ドット、アンダースコア、ハイフンのみを含められます。
 
-短寿命のメタデータには `ttl_ms` を使ってください。`1` から `86400000` ミリ秒の間でなければなりません。置き換え・クリア・ペインまたはワークスペースのクローズまで残るべきメタデータでは省略します。表示フィールドは従来どおりソース単位で失効し、呼び出しで更新した各トークンには個別の期限が設定されます。トークンメタデータはサーバー再起動後に復元されません。
+短寿命のメタデータには `ttl_ms` を使ってください。`1` から `86400000` ミリ秒の間でなければなりません。置き換え・クリア・対象のペイン、ワークスペース、またはセッションの終了まで残るべきメタデータでは省略します。表示フィールドは従来どおりソース単位で失効し、呼び出しで更新した各トークンには個別の期限が設定されます。トークンメタデータはサーバー再起動後に復元されません。
 
-フックが順不同で更新を送る可能性がある場合は `seq` を使ってください。同じ `source` について、最後に受理されたシーケンス以下のシーケンス番号を持つ報告は、API には受理されますがペイン状態には無視されます。ペインまたはワークスペースが存続する間、シーケンス付きトークン報告を送れる異なるソースは最大 32 個です。クリアや失効でもそのソース枠は解放されません。
+フックが順不同で更新を送る可能性がある場合は `seq` を使ってください。同じ `source` について、最後に受理されたシーケンス以下のシーケンス番号を持つ報告は、API には受理されますが無視されます。ペイン、ワークスペース、またはセッションが存続する間、シーケンス付きトークン報告を送れる異なるソースは最大 32 個です。クリアや失効でもそのソース枠は解放されません。
 
 ## イベント購読
 
@@ -636,6 +638,8 @@ workspace の get/list 応答は結果の `tokens` マップを公開し、ス�
 ```
 
 最初のレスポンスは購読の確認応答です。以降の行はプッシュされるイベントです。
+
+セッションイベント購読には `session.metadata_updated` があります。現在の完全なトークンマップでトークン変更と TTL 失効を報告し、プラグインイベントフックは実行しません。
 
 ワークスペースのイベント購読には `workspace.created`、`workspace.updated`、`workspace.metadata_updated`、`workspace.renamed`、`workspace.moved`、`workspace.reordered`、`workspace.closed`、`workspace.focused` があります。`workspace.metadata_updated` はプラグインイベントフックを実行せずにトークン変更と TTL 失効を報告します。その他のワークスペースイベントは Herdr の UI/ランタイムのライフサイクルを記述します。ワークスペースが worktree グループに属している場合、`workspace.created` は任意の `workspace.worktree` 出自情報を含みます。`workspace.moved` は、移動した `workspace_id`、要求された `insert_index`、更新済みの順序付き `workspaces` リストを含みます。`workspace.reordered` は、アトミックに移動した `workspace_ids`、省略可能な `before_workspace_id`、サーバーが確定した順序付き `workspaces` リストを含みます。削除前に Herdr がまだ識別できる場合、`workspace.closed` は最終的な `workspace` スナップショットを含みます。
 タブのイベント購読には `tab.created`、`tab.closed`、`tab.focused`、`tab.renamed`、`tab.moved` があります。`tab.moved` は、移動した `tab_id`、`workspace_id`、要求された `insert_index`、そのワークスペースの更新済みの順序付き `tabs` リストを含みます。

@@ -62,6 +62,27 @@ fn request_uses_dot_method_names() {
 }
 
 #[test]
+fn session_report_metadata_request_round_trips_without_session_id() {
+    let request = Request {
+        id: "metadata".into(),
+        method: Method::SessionReportMetadata(SessionReportMetadataParams {
+            source: "user:status".into(),
+            tokens: HashMap::from([
+                ("summary".into(), Some("reviewing".into())),
+                ("old".into(), None),
+            ]),
+            seq: Some(4),
+            ttl_ms: Some(5_000),
+        }),
+    };
+
+    let json = serde_json::to_value(&request).unwrap();
+    assert_eq!(json["method"], "session.report_metadata");
+    assert!(json["params"].get("session_id").is_none());
+    assert_eq!(serde_json::from_value::<Request>(json).unwrap(), request);
+}
+
+#[test]
 fn agent_start_and_prompt_requests_round_trip() {
     let start = Request {
         id: "start".into(),
@@ -669,6 +690,7 @@ fn session_snapshot_request_and_response_round_trip() {
                 focused_workspace_id: None,
                 focused_tab_id: None,
                 focused_pane_id: None,
+                tokens: HashMap::new(),
                 workspaces: Vec::new(),
                 tabs: Vec::new(),
                 panes: Vec::new(),

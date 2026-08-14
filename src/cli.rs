@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::api::client::{ApiClient, ApiClientError};
 use crate::api::schema::{
     AgentStatus, ClientWindowTitleSetParams, EmptyParams, Method, PaneAgentState, ReadFormat,
-    ReadSource, Request, SplitDirection,
+    ReadSource, Request, SessionReportMetadataParams, SplitDirection,
 };
 
 mod agent;
@@ -414,6 +414,7 @@ fn run_session_command(args: &[String]) -> std::io::Result<i32> {
 
     match subcommand {
         "list" => session_list(&args[1..]),
+        "report-metadata" => session_report_metadata(&args[1..]),
         "attach" => session_attach_help(&args[1..]),
         "stop" => session_stop(&args[1..]),
         "delete" => session_delete(&args[1..]),
@@ -426,6 +427,85 @@ fn run_session_command(args: &[String]) -> std::io::Result<i32> {
             Ok(2)
         }
     }
+}
+
+fn session_report_metadata(args: &[String]) -> std::io::Result<i32> {
+    let params = match parse_session_report_metadata_args(args) {
+        Ok(params) => params,
+        Err(message) => {
+            eprintln!("{message}");
+            eprintln!("usage: herdr session report-metadata --source ID [--token NAME=VALUE] [--clear-token NAME] [--seq N] [--ttl-ms N]");
+            return Ok(2);
+        }
+    };
+    send_ok_request(Method::SessionReportMetadata(params))
+}
+
+fn parse_session_report_metadata_args(
+    args: &[String],
+) -> Result<SessionReportMetadataParams, String> {
+    let mut source = None;
+    let mut tokens = std::collections::HashMap::new();
+    let mut seq = None;
+    let mut ttl_ms = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--source" => {
+                source = Some(
+                    args.get(index + 1)
+                        .ok_or("missing value for --source")?
+                        .clone(),
+                );
+                index += 2;
+            }
+            "--token" => {
+                let value = args.get(index + 1).ok_or("missing value for --token")?;
+                let (key, value) = parse_token_assignment(value)?;
+                tokens.insert(key, value);
+                index += 2;
+            }
+            "--clear-token" => {
+                let key = args
+                    .get(index + 1)
+                    .ok_or("missing value for --clear-token")?;
+                tokens.insert(key.clone(), None);
+                index += 2;
+            }
+            "--seq" => {
+                let value = args.get(index + 1).ok_or("missing value for --seq")?;
+                seq = Some(
+                    value
+                        .parse::<u64>()
+                        .map_err(|_| format!("invalid value for --seq: {value}"))?,
+                );
+                index += 2;
+            }
+            "--ttl-ms" => {
+                let value = args.get(index + 1).ok_or("missing value for --ttl-ms")?;
+                ttl_ms = Some(
+                    value
+                        .parse::<u64>()
+                        .map_err(|_| format!("invalid value for --ttl-ms: {value}"))?,
+                );
+                index += 2;
+            }
+            other => return Err(format!("unknown option: {other}")),
+        }
+    }
+
+    let source = source
+        .filter(|source: &String| !source.trim().is_empty())
+        .ok_or("missing required --source")?;
+    if tokens.is_empty() {
+        return Err("missing token to set or clear".into());
+    }
+    Ok(SessionReportMetadataParams {
+        source,
+        tokens,
+        seq,
+        ttl_ms,
+    })
 }
 
 fn session_attach_help(args: &[String]) -> std::io::Result<i32> {
@@ -1022,6 +1102,7 @@ fn print_terminal_help() {
 fn print_session_help() {
     eprintln!("herdr session commands:");
     eprintln!("  herdr session list [--json]");
+    eprintln!("  herdr session report-metadata --source ID [--token NAME=VALUE] [--clear-token NAME] [--seq N] [--ttl-ms N]");
     eprintln!("  herdr session attach <name>");
     eprintln!("  herdr session stop <name> [--json]");
     eprintln!("  herdr session delete <name> [--json]");
@@ -1034,6 +1115,40 @@ fn _print_json<T: Serialize>(value: &T) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use crate::api::schema::SessionReportMetadataParams;
+
+    #[test]
+    fn parses_session_report_metadata_cli_without_session_target() {
+        let params = super::parse_session_report_metadata_args(&[
+            "--source".into(),
+            "user:status".into(),
+            "--token".into(),
+            "summary=reviewing".into(),
+            "--clear-token".into(),
+            "old".into(),
+            "--seq".into(),
+            "4".into(),
+            "--ttl-ms".into(),
+            "5000".into(),
+        ])
+        .expect("valid session metadata arguments");
+
+        assert_eq!(
+            params,
+            SessionReportMetadataParams {
+                source: "user:status".into(),
+                tokens: HashMap::from([
+                    ("summary".into(), Some("reviewing".into())),
+                    ("old".into(), None),
+                ]),
+                seq: Some(4),
+                ttl_ms: Some(5_000),
+            }
+        );
+    }
+
     #[test]
     fn parses_channel_set_argument() {
         assert_eq!(

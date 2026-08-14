@@ -439,7 +439,10 @@ impl App {
             self.refresh_new_herdr_toast_context_for_update(&update, &previous_toast);
             self.emit_pane_state_update(&update);
         }
-        let (panes, workspaces) = self.state.expire_metadata_tokens(now);
+        let (session, panes, workspaces) = self.state.expire_metadata_tokens(now);
+        if session {
+            self.emit_session_token_updated();
+        }
         for (ws_idx, pane_id) in panes {
             self.emit_pane_updated(ws_idx, pane_id);
         }

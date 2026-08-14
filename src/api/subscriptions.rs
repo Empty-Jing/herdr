@@ -112,6 +112,10 @@ impl ActiveSubscription {
         event_hub: &EventHub,
     ) -> Result<Self, ErrorResponse> {
         match subscription {
+            Subscription::SessionMetadataUpdated {} => Ok(Self::Event(ActiveEventSubscription {
+                event_kind: crate::api::schema::EventKind::SessionMetadataUpdated,
+                last_sequence: 0,
+            })),
             Subscription::WorkspaceCreated {} => Ok(Self::Event(ActiveEventSubscription {
                 event_kind: crate::api::schema::EventKind::WorkspaceCreated,
                 last_sequence: 0,
@@ -693,6 +697,28 @@ mod tests {
             subscription,
             ActiveSubscription::Event(ActiveEventSubscription {
                 event_kind: EventKind::WorkspaceMetadataUpdated,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn session_metadata_subscription_uses_dedicated_event_kind() {
+        let event_hub = EventHub::default();
+        let (api_tx, _api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let subscription = ActiveSubscription::new(
+            Subscription::SessionMetadataUpdated {},
+            "test",
+            0,
+            &api_tx,
+            &event_hub,
+        )
+        .expect("session metadata subscription");
+
+        assert!(matches!(
+            subscription,
+            ActiveSubscription::Event(ActiveEventSubscription {
+                event_kind: EventKind::SessionMetadataUpdated,
                 ..
             })
         ));

@@ -536,6 +536,8 @@ impl App {
             pane_id_aliases: std::collections::HashMap::new(),
             public_pane_id_aliases: std::collections::HashMap::new(),
             workspaces,
+            metadata_tokens: crate::metadata_tokens::MetadataTokens::default(),
+            metadata_token_sequences: std::collections::HashMap::new(),
             active,
             previous_pane_focus: None,
             selected,

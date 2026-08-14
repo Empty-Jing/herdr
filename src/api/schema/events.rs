@@ -16,6 +16,8 @@ pub struct EventsSubscribeParams {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type")]
 pub enum Subscription {
+    #[serde(rename = "session.metadata_updated")]
+    SessionMetadataUpdated {},
     #[serde(rename = "workspace.created")]
     WorkspaceCreated {},
     #[serde(rename = "workspace.updated")]
@@ -192,6 +194,7 @@ pub enum EventMatch {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum EventKind {
+    SessionMetadataUpdated,
     WorkspaceCreated,
     WorkspaceUpdated,
     WorkspaceMetadataUpdated,
@@ -223,6 +226,7 @@ pub enum EventKind {
 impl EventKind {
     pub fn dot_name(self) -> &'static str {
         match self {
+            EventKind::SessionMetadataUpdated => "session.metadata_updated",
             EventKind::WorkspaceCreated => "workspace.created",
             EventKind::WorkspaceUpdated => "workspace.updated",
             EventKind::WorkspaceMetadataUpdated => "workspace.metadata_updated",
@@ -255,6 +259,7 @@ impl EventKind {
 
 #[cfg(test)]
 pub const KNOWN_EVENT_KINDS: &[EventKind] = &[
+    EventKind::SessionMetadataUpdated,
     EventKind::WorkspaceCreated,
     EventKind::WorkspaceUpdated,
     EventKind::WorkspaceMetadataUpdated,
@@ -353,6 +358,7 @@ mod known_event_name_tests {
         assert!(!names.contains(&"pane.output_changed"));
         assert!(!names.contains(&"layout.updated"));
         assert!(!names.contains(&"workspace.metadata_updated"));
+        assert!(!names.contains(&"session.metadata_updated"));
         assert!(!names.contains(&"pane.updated"));
         assert!(names.contains(&"pane.moved"));
     }
@@ -420,6 +426,10 @@ pub struct PaneScrollChangedEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EventData {
+    SessionMetadataUpdated {
+        #[schemars(schema_with = "super::common::metadata_token_values_schema")]
+        tokens: HashMap<String, String>,
+    },
     WorkspaceCreated {
         workspace: WorkspaceInfo,
     },

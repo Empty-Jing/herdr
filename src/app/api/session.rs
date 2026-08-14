@@ -1,9 +1,81 @@
-use crate::api::schema::{ResponseResult, SessionSnapshot};
+use crate::api::schema::{ResponseResult, SessionReportMetadataParams, SessionSnapshot};
 use crate::app::App;
 
+use super::super::api_helpers::{normalize_metadata_source, normalize_metadata_ttl};
 use super::responses::encode_success;
 
 impl App {
+    pub(super) fn handle_session_report_metadata(
+        &mut self,
+        id: String,
+        params: SessionReportMetadataParams,
+    ) -> String {
+        let source = match normalize_metadata_source(params.source) {
+            Ok(source) => source,
+            Err(message) => {
+                return super::responses::encode_error(id, "invalid_metadata_source", message)
+            }
+        };
+        let ttl = match normalize_metadata_ttl(params.ttl_ms) {
+            Ok(ttl) => ttl,
+            Err(message) => {
+                return super::responses::encode_error(id, "invalid_metadata_ttl", message)
+            }
+        };
+        let tokens = match super::super::api_helpers::normalize_metadata_tokens(params.tokens) {
+            Ok(tokens) => tokens,
+            Err(message) => {
+                return super::responses::encode_error(id, "invalid_metadata_token", message)
+            }
+        };
+        if !crate::metadata_tokens::sequence_is_fresh(
+            &self.state.metadata_token_sequences,
+            &source,
+            params.seq,
+        ) {
+            return encode_success(id, ResponseResult::Ok {});
+        }
+        if self.state.metadata_tokens.key_count_after_patch(&tokens)
+            > super::super::api_helpers::MAX_METADATA_TOKEN_KEYS_PER_RESOURCE
+        {
+            return super::responses::encode_error(
+                id,
+                "metadata_token_limit",
+                format!(
+                    "session metadata may contain at most {} tokens",
+                    super::super::api_helpers::MAX_METADATA_TOKEN_KEYS_PER_RESOURCE
+                ),
+            );
+        }
+        match crate::metadata_tokens::accept_sequence(
+            &mut self.state.metadata_token_sequences,
+            &source,
+            params.seq,
+        ) {
+            Ok(true) => {}
+            Ok(false) => return encode_success(id, ResponseResult::Ok {}),
+            Err(()) => {
+                return super::responses::encode_error(
+                    id,
+                    "metadata_sequence_source_limit",
+                    format!(
+                        "session metadata may track at most {} sequenced sources",
+                        crate::metadata_tokens::MAX_SEQUENCE_SOURCES
+                    ),
+                );
+            }
+        }
+        let changed = self
+            .state
+            .metadata_tokens
+            .patch(tokens, ttl, std::time::Instant::now());
+        if changed {
+            self.sync_agent_metadata_deadline();
+            self.emit_session_token_updated();
+        }
+        encode_success(id, ResponseResult::Ok {})
+    }
+
     pub(super) fn handle_session_snapshot(&mut self, id: String) -> String {
         encode_success(
             id,
@@ -48,6 +120,7 @@ impl App {
             focused_workspace_id,
             focused_tab_id,
             focused_pane_id,
+            tokens: self.state.metadata_tokens.values(),
             workspaces,
             tabs,
             panes: self.collect_panes_for_workspace(None).unwrap_or_default(),
@@ -59,7 +132,7 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use crate::api::schema::{EmptyParams, Method, ResponseResult, SuccessResponse};
+    use crate::api::schema::{EmptyParams, ErrorResponse, Method, ResponseResult, SuccessResponse};
     use crate::{config::Config, workspace::Workspace};
 
     fn app_with_two_tabs() -> crate::app::App {
@@ -108,5 +181,138 @@ mod tests {
             snapshot.focused_pane_id.as_deref(),
             Some(snapshot.panes[0].pane_id.as_str())
         );
+        assert!(snapshot.tokens.is_empty());
+    }
+
+    #[test]
+    fn session_metadata_patches_snapshot_and_emits_full_tokens() {
+        use std::collections::HashMap;
+
+        use crate::api::schema::{EventData, SessionReportMetadataParams};
+
+        let event_hub = crate::api::EventHub::default();
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app =
+            crate::app::App::new(&Config::default(), true, None, api_rx, event_hub.clone());
+
+        for (seq, tokens, expected) in [
+            (
+                1,
+                HashMap::from([
+                    ("summary".into(), Some("reviewing".into())),
+                    ("model".into(), Some("opus".into())),
+                ]),
+                HashMap::from([
+                    ("summary".into(), "reviewing".into()),
+                    ("model".into(), "opus".into()),
+                ]),
+            ),
+            (
+                2,
+                HashMap::from([
+                    ("summary".into(), Some("done".into())),
+                    ("model".into(), None),
+                ]),
+                HashMap::from([("summary".into(), "done".into())]),
+            ),
+        ] {
+            let response = app.handle_api_request(crate::api::schema::Request {
+                id: format!("req-{seq}"),
+                method: Method::SessionReportMetadata(SessionReportMetadataParams {
+                    source: "user:test".into(),
+                    tokens,
+                    seq: Some(seq),
+                    ttl_ms: None,
+                }),
+            });
+            let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+            assert_eq!(success.result, ResponseResult::Ok {});
+            assert_eq!(app.session_snapshot().tokens, expected);
+        }
+
+        let response = app.handle_session_report_metadata(
+            "stale".into(),
+            SessionReportMetadataParams {
+                source: "user:test".into(),
+                tokens: HashMap::from([("summary".into(), Some("stale".into()))]),
+                seq: Some(1),
+                ttl_ms: None,
+            },
+        );
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        assert_eq!(success.result, ResponseResult::Ok {});
+        assert_eq!(
+            app.session_snapshot().tokens,
+            HashMap::from([("summary".into(), "done".into())])
+        );
+
+        assert!(event_hub.events_after(0).iter().any(|(_, event)| matches!(
+            &event.data,
+            EventData::SessionMetadataUpdated { tokens }
+                if tokens == &HashMap::from([("summary".into(), "done".into())])
+        )));
+    }
+
+    #[test]
+    fn session_metadata_ttl_expiry_emits_empty_full_snapshot() {
+        use std::collections::HashMap;
+
+        use crate::api::schema::{EventData, SessionReportMetadataParams};
+
+        let event_hub = crate::api::EventHub::default();
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app =
+            crate::app::App::new(&Config::default(), true, None, api_rx, event_hub.clone());
+        let response = app.handle_session_report_metadata(
+            "req".into(),
+            SessionReportMetadataParams {
+                source: "user:test".into(),
+                tokens: HashMap::from([("summary".into(), Some("temporary".into()))]),
+                seq: None,
+                ttl_ms: Some(1),
+            },
+        );
+        let _: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let deadline = app.agent_metadata_deadline.expect("session token deadline");
+
+        app.expire_metadata_at(deadline, deadline);
+
+        assert!(app.session_snapshot().tokens.is_empty());
+        assert!(event_hub.events_after(0).iter().any(|(_, event)| matches!(
+            &event.data,
+            EventData::SessionMetadataUpdated { tokens } if tokens.is_empty()
+        )));
+    }
+
+    #[test]
+    fn session_report_metadata_reuses_ttl_limits() {
+        use std::collections::HashMap;
+
+        use crate::api::schema::SessionReportMetadataParams;
+
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = crate::app::App::new(
+            &Config::default(),
+            true,
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+        );
+        for ttl_ms in [
+            0,
+            crate::app::api_helpers::METADATA_TTL_MAX_MS.saturating_add(1),
+        ] {
+            let response = app.handle_session_report_metadata(
+                "req".into(),
+                SessionReportMetadataParams {
+                    source: "user:test".into(),
+                    tokens: HashMap::from([("summary".into(), Some("temporary".into()))]),
+                    seq: None,
+                    ttl_ms: Some(ttl_ms),
+                },
+            );
+            let error: ErrorResponse = serde_json::from_str(&response).unwrap();
+            assert_eq!(error.error.code, "invalid_metadata_ttl");
+        }
     }
 }

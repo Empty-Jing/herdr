@@ -83,6 +83,29 @@
           "oneOf": [
             {
               "properties": {
+                "tokens": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "maxProperties": 32,
+                  "propertyNames": {
+                    "pattern": "^[A-Za-z0-9_-]{1,32}$"
+                  },
+                  "type": "object"
+                },
+                "type": {
+                  "const": "session_metadata_updated",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "tokens"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
                 "type": {
                   "const": "workspace_created",
                   "type": "string"
@@ -728,6 +751,7 @@
         },
         "EventKind": {
           "enum": [
+            "session_metadata_updated",
             "workspace_created",
             "workspace_updated",
             "workspace_metadata_updated",
@@ -3674,6 +3698,48 @@
           },
           "type": "object"
         },
+        "SessionReportMetadataParams": {
+          "properties": {
+            "seq": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "source": {
+              "type": "string"
+            },
+            "tokens": {
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "maxProperties": 16,
+              "propertyNames": {
+                "pattern": "^[A-Za-z0-9_-]{1,32}$"
+              },
+              "type": "object"
+            },
+            "ttl_ms": {
+              "format": "uint64",
+              "maximum": 86400000,
+              "minimum": 1,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "source",
+            "tokens"
+          ],
+          "type": "object"
+        },
         "SplitDirection": {
           "enum": [
             "right",
@@ -3683,6 +3749,18 @@
         },
         "Subscription": {
           "oneOf": [
+            {
+              "properties": {
+                "type": {
+                  "const": "session.metadata_updated",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
             {
               "properties": {
                 "type": {
@@ -4581,6 +4659,22 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/EmptyParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "session.report_metadata",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/SessionReportMetadataParams"
             }
           },
           "required": [
@@ -6359,6 +6453,29 @@
           "oneOf": [
             {
               "properties": {
+                "tokens": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "maxProperties": 32,
+                  "propertyNames": {
+                    "pattern": "^[A-Za-z0-9_-]{1,32}$"
+                  },
+                  "type": "object"
+                },
+                "type": {
+                  "const": "session_metadata_updated",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "tokens"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
                 "type": {
                   "const": "workspace_created",
                   "type": "string"
@@ -7019,6 +7136,7 @@
         },
         "EventKind": {
           "enum": [
+            "session_metadata_updated",
             "workspace_created",
             "workspace_updated",
             "workspace_metadata_updated",
@@ -9863,6 +9981,16 @@
                 "$ref": "#/schemas/success_response/$defs/TabInfo"
               },
               "type": "array"
+            },
+            "tokens": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "maxProperties": 32,
+              "propertyNames": {
+                "pattern": "^[A-Za-z0-9_-]{1,32}$"
+              },
+              "type": "object"
             },
             "version": {
               "type": "string"
