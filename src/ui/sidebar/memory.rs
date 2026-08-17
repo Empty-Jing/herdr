@@ -68,15 +68,15 @@ fn card_height(card: &Card) -> u16 {
 }
 
 fn required_inner_width(card: &Card) -> usize {
-    card.rows
+    let Some(label_width) = card
+        .rows
         .iter()
-        .map(|row| {
-            display_width(&display_name(&row.name))
-                + 1
-                + display_width(&format!(" {:.0}%", percentage(row)))
-        })
+        .map(|row| display_width(&display_name(&row.name)))
         .max()
-        .unwrap_or(13)
+    else {
+        return 13;
+    };
+    label_width + percentage_width(&card.rows) + 2
 }
 
 pub(super) fn height_in_body(app: &AppState, body: Rect) -> u16 {
@@ -143,22 +143,36 @@ pub(super) fn render(app: &AppState, frame: &mut Frame, area: Rect) {
         .map(|row| display_width(&display_name(&row.name)))
         .max()
         .unwrap_or(0);
+    let percent_width = percentage_width(&card.rows);
     for (index, row) in card.rows.iter().enumerate() {
         let y = inner.y.saturating_add(index as u16);
         if y >= inner.y.saturating_add(inner.height) {
             break;
         }
         frame.render_widget(
-            Paragraph::new(memory_line(row, label_width, inner.width, palette)),
+            Paragraph::new(memory_line(
+                row,
+                label_width,
+                percent_width,
+                inner.width,
+                palette,
+            )),
             Rect::new(inner.x, y, inner.width, 1),
         );
     }
 }
 
-fn memory_line<'a>(row: &MemoryRow, label_width: usize, width: u16, palette: &Palette) -> Line<'a> {
+fn memory_line<'a>(
+    row: &MemoryRow,
+    label_width: usize,
+    percent_width: usize,
+    width: u16,
+    palette: &Palette,
+) -> Line<'a> {
     let label = format!("{:<label_width$}", display_name(&row.name));
     let percent_value = percentage(row);
-    let percent = format!(" {percent_value:.0}%");
+    let percent_value_text = format!("{percent_value:.0}%");
+    let percent = format!(" {percent_value_text:>percent_width$}");
     let fixed_width = display_width(&label) + display_width(&percent);
     let bar_width = (width as usize).saturating_sub(fixed_width).max(1);
     let ratio = (row.current as f64 / row.maximum as f64).clamp(0.0, 1.0);
@@ -195,6 +209,13 @@ fn percentage(row: &MemoryRow) -> f64 {
     row.current as f64 / row.maximum as f64 * 100.0
 }
 
+fn percentage_width(rows: &[MemoryRow]) -> usize {
+    rows.iter()
+        .map(|row| display_width(&format!("{:.0}%", percentage(row))))
+        .max()
+        .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,6 +241,37 @@ mod tests {
     }
 
     #[test]
+    fn percentage_digits_do_not_change_the_progress_bar_width() {
+        let palette = Palette::catppuccin();
+        let rows = [
+            MemoryRow {
+                name: "user".into(),
+                current: 8,
+                maximum: 100,
+            },
+            MemoryRow {
+                name: "user".into(),
+                current: 11,
+                maximum: 100,
+            },
+            MemoryRow {
+                name: "user".into(),
+                current: 100,
+                maximum: 100,
+            },
+        ];
+        let percent_width = percentage_width(&rows);
+        let bar_ends = rows.map(|row| {
+            memory_line(&row, 4, percent_width, 30, &palette).spans[..3]
+                .iter()
+                .map(|span| display_width(span.content.as_ref()))
+                .sum::<usize>()
+        });
+
+        assert_eq!(bar_ends, [25, 25, 25]);
+    }
+
+    #[test]
     fn over_limit_percentage_keeps_numeric_overage_and_uses_warning_color() {
         let row = MemoryRow {
             name: "user".into(),
@@ -227,14 +279,15 @@ mod tests {
             maximum: 50 * 1024_u64.pow(3),
         };
         let palette = Palette::catppuccin();
-        let text = memory_line(&row, 4, 30, &palette)
+        let percent_width = percentage_width(std::slice::from_ref(&row));
+        let text = memory_line(&row, 4, percent_width, 30, &palette)
             .spans
             .iter()
             .map(|span| span.content.as_ref())
             .collect::<String>();
         assert!(text.contains("120%"));
         assert!(!text.contains("50G"));
-        let line = memory_line(&row, 4, 30, &palette);
+        let line = memory_line(&row, 4, percent_width, 30, &palette);
         assert_eq!(line.spans[1].style.fg, Some(palette.red));
         assert_eq!(line.spans[3].style.fg, Some(palette.red));
     }
@@ -247,7 +300,8 @@ mod tests {
             maximum: 50 * 1024_u64.pow(3),
         };
         let palette = Palette::catppuccin();
-        let line = memory_line(&row, 4, 30, &palette);
+        let percent_width = percentage_width(std::slice::from_ref(&row));
+        let line = memory_line(&row, 4, percent_width, 30, &palette);
         assert_eq!(line.spans[1].style.fg, Some(palette.accent));
         assert_eq!(line.spans[3].style.fg, Some(palette.text));
     }
