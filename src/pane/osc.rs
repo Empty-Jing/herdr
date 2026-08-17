@@ -632,8 +632,14 @@ fn parse_file_uri_cwd(uri: &str) -> Option<PathBuf> {
     let path = if rest.starts_with('/') {
         rest
     } else if let Some(slash) = rest.find('/') {
-        let host = &rest[..slash];
-        if !(host.is_empty() || host.eq_ignore_ascii_case("localhost")) {
+        let host = percent_decode_utf8(&rest[..slash])?;
+        let local_hostname = crate::platform::hostname();
+        let is_local = host.is_empty()
+            || host.eq_ignore_ascii_case("localhost")
+            || local_hostname
+                .as_deref()
+                .is_some_and(|local| host.eq_ignore_ascii_case(local));
+        if !is_local {
             return None;
         }
         &rest[slash..]
@@ -972,11 +978,31 @@ mod tests {
         );
     }
 
+    #[cfg(not(windows))]
+    #[test]
+    fn reported_cwd_accepts_local_hostname_file_uri() {
+        let hostname = crate::platform::hostname().expect("test host should have a name");
+        let uri = format!("file://{hostname}/tmp/herdr%20repo");
+
+        assert_eq!(
+            parse_reported_cwd(uri.as_bytes()),
+            Some(std::path::PathBuf::from("/tmp/herdr repo"))
+        );
+    }
+
     #[test]
     fn reported_cwd_rejects_invalid_or_empty_values() {
+        let local_hostname = crate::platform::hostname().unwrap_or_default();
+        let remote_hostname = if local_hostname.eq_ignore_ascii_case("remote") {
+            "other-remote"
+        } else {
+            "remote"
+        };
+        let remote_uri = format!("file://{remote_hostname}/tmp");
+
         assert_eq!(parse_reported_cwd(b""), None);
         assert_eq!(parse_reported_cwd(b"\xff"), None);
-        assert_eq!(parse_reported_cwd(b"file://remote/tmp"), None);
+        assert_eq!(parse_reported_cwd(remote_uri.as_bytes()), None);
     }
 
     // -----------------------------------------------------------------------

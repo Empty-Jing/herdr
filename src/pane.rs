@@ -2957,9 +2957,11 @@ impl PaneRuntime {
     pub fn follow_cwd(&self) -> Option<std::path::PathBuf> {
         #[cfg(unix)]
         {
+            let shell_pid = self.child_pid.load(Ordering::Acquire);
             let leader_cwd = self
                 .io
                 .foreground_process_group_id()
+                .filter(|process_group_id| *process_group_id != shell_pid)
                 .and_then(usable_process_cwd);
             leader_cwd.or_else(|| self.cwd())
         }
