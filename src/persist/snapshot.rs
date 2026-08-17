@@ -319,7 +319,10 @@ fn capture_tab(
     let mut panes = HashMap::new();
     for id in tab.panes.keys() {
         let cwd = tab
-            .cwd_for_pane(*id, terminals, terminal_runtimes)
+            .terminal_id(*id)
+            .and_then(|terminal_id| terminal_runtimes.get(terminal_id))
+            .and_then(|runtime| runtime.follow_cwd())
+            .or_else(|| tab.cwd_for_pane(*id, terminals, terminal_runtimes))
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| "/".into()));
         let terminal = tab
             .panes

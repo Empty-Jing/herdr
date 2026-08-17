@@ -635,6 +635,142 @@ fn server_stop_then_restart_restores_pane_history() {
 }
 
 #[test]
+fn server_stop_then_restart_restores_foreground_process_cwd() {
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let socket_path = runtime_dir.join("herdr.sock");
+    let client_socket = runtime_dir.join("herdr-client.sock");
+    let start_cwd = base.join("start");
+    let foreground_cwd = base.join("target");
+    let foreground_marker = base.join("foreground-ready");
+    let restored_pwd = base.join("restored-pwd.txt");
+    fs::create_dir_all(&start_cwd).unwrap();
+    fs::create_dir_all(&foreground_cwd).unwrap();
+
+    let mut herdr = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    wait_for_socket(&socket_path, Duration::from_secs(5));
+    wait_for_socket(&client_socket, Duration::from_secs(5));
+
+    let created = run_cli_json(
+        &socket_path,
+        &[
+            "workspace",
+            "create",
+            "--cwd",
+            start_cwd.to_str().expect("test path should be utf-8"),
+            "--label",
+            "foreground-cwd-restart",
+        ],
+    );
+    let pane_id = created["result"]["root_pane"]["pane_id"]
+        .as_str()
+        .expect("workspace create should return root pane id")
+        .to_string();
+    let report_cwd = format!("printf '\\033]7;file://{}\\033\\\\'", start_cwd.display());
+    let reported = run_cli(&socket_path, &["pane", "run", &pane_id, &report_cwd]);
+    assert!(
+        reported.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&reported.stderr)
+    );
+    assert!(
+        wait_until(Duration::from_secs(3), Duration::from_millis(25), || {
+            let pane = run_cli_json(&socket_path, &["pane", "get", &pane_id]);
+            pane["result"]["pane"]["cwd"] == start_cwd.to_string_lossy().as_ref()
+        }),
+        "pane should accept the reported shell cwd before starting foreground work"
+    );
+
+    let command = format!(
+        "/bin/sh -c 'cd {} && touch {} && sleep 30'",
+        foreground_cwd.display(),
+        foreground_marker.display()
+    );
+    let started = run_cli(&socket_path, &["pane", "run", &pane_id, &command]);
+    assert!(
+        started.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&started.stderr)
+    );
+    assert!(
+        wait_until(Duration::from_secs(3), Duration::from_millis(25), || {
+            foreground_marker.exists() && {
+                let pane = run_cli_json(&socket_path, &["pane", "get", &pane_id]);
+                pane["result"]["pane"]["cwd"] == start_cwd.to_string_lossy().as_ref()
+                    && pane["result"]["pane"]["foreground_cwd"]
+                        == foreground_cwd.to_string_lossy().as_ref()
+            }
+        }),
+        "pane should expose a foreground cwd distinct from its reported shell cwd"
+    );
+
+    let stopped = run_cli(&socket_path, &["server", "stop"]);
+    assert!(
+        stopped.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&stopped.stderr)
+    );
+    let pid = herdr.child.process_id();
+    let exit_status = herdr.child.wait().unwrap();
+    unregister_spawned_herdr_pid(pid);
+    assert!(exit_status.success(), "server stop should exit cleanly");
+    drop(herdr);
+
+    let restarted = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    wait_for_socket(&socket_path, Duration::from_secs(5));
+    wait_for_socket(&client_socket, Duration::from_secs(5));
+
+    let workspaces = run_cli_json(&socket_path, &["workspace", "list"]);
+    let workspace_id = workspaces["result"]["workspaces"]
+        .as_array()
+        .expect("workspace.list should return workspaces")
+        .iter()
+        .find(|workspace| workspace["label"] == "foreground-cwd-restart")
+        .and_then(|workspace| workspace["workspace_id"].as_str())
+        .expect("restored workspace should exist")
+        .to_string();
+    let panes = run_cli_json(
+        &socket_path,
+        &["pane", "list", "--workspace", &workspace_id],
+    );
+    let restored_pane = panes["result"]["panes"]
+        .as_array()
+        .expect("pane.list should return panes")
+        .first()
+        .expect("restored pane should exist");
+    let restored_pane_id = restored_pane["pane_id"]
+        .as_str()
+        .expect("restored pane should have an id")
+        .to_string();
+    assert_eq!(
+        restored_pane["cwd"],
+        foreground_cwd.to_string_lossy().as_ref(),
+        "restored pane should start in the saved foreground process cwd"
+    );
+
+    let pwd_command = format!("pwd > '{}'", restored_pwd.display());
+    let pwd = run_cli(
+        &socket_path,
+        &["pane", "run", &restored_pane_id, &pwd_command],
+    );
+    assert!(
+        pwd.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&pwd.stderr)
+    );
+    assert!(
+        wait_until(Duration::from_secs(3), Duration::from_millis(25), || {
+            fs::read_to_string(&restored_pwd)
+                .is_ok_and(|pwd| pwd.trim() == foreground_cwd.to_string_lossy())
+        }),
+        "restored shell should actually run in the saved foreground cwd"
+    );
+
+    cleanup_spawned_herdr(restarted, base);
+}
+
+#[test]
 fn server_start_restores_legacy_session_through_api_identity() {
     let base = unique_test_dir();
     let config_home = base.join("config");
