@@ -2441,15 +2441,15 @@ fn current_terminal_geometry(
     kitty_graphics_enabled: bool,
     reported_cell_size: &AtomicU64,
     last_cell_size: Option<(u32, u32)>,
-) -> (u16, u16, u32, u32) {
-    let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+) -> Option<(u16, u16, u32, u32)> {
+    let (cols, rows) = crossterm::terminal::size().ok()?;
     if !kitty_graphics_enabled {
-        return (cols, rows, 0, 0);
+        return Some((cols, rows, 0, 0));
     }
     let (cell_width_px, cell_height_px) = ioctl_cell_size().unwrap_or_else(|| {
         cell_size_fallback(reported_cell_size.load(Ordering::Acquire), last_cell_size)
     });
-    (cols, rows, cell_width_px, cell_height_px)
+    Some((cols, rows, cell_width_px, cell_height_px))
 }
 
 /// Reads terminal geometry before the handshake. Direct graphics is eligible
@@ -2505,11 +2505,13 @@ fn resize_poll_loop(
     while !should_quit.load(Ordering::Acquire) {
         std::thread::sleep(Duration::from_millis(100));
         let signalled = crate::platform::take_terminal_resize_signal();
-        let new_size = current_terminal_geometry(
+        let Some(new_size) = current_terminal_geometry(
             kitty_graphics_enabled,
             reported_cell_size,
             Some((last_size.2, last_size.3)),
-        );
+        ) else {
+            continue;
+        };
         if resize_report_required(signalled, new_size, last_size) {
             last_size = new_size;
             if resize_tx
